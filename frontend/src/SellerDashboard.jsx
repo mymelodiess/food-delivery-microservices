@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react'; // Thêm useMemo
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import api from './api';
@@ -12,6 +12,8 @@ function SellerDashboard() {
     const [activeTab, setActiveTab] = useState('orders');
     const [foods, setFoods] = useState([]);
     const [orders, setOrders] = useState([]);
+    
+    // Form states
     const [newFood, setNewFood] = useState({ name: '', price: '', discount: 0 });
     const [newCoupon, setNewCoupon] = useState({ code: '', discount_percent: 0 });
 
@@ -21,9 +23,10 @@ function SellerDashboard() {
             navigate('/');
             return;
         }
-        if (activeTab === 'menu') fetchFoods();
-        if (activeTab === 'orders') fetchOrders();
-    }, [activeTab]);
+        // Load cả 2 để tính toán thống kê (nếu muốn hiển thị số món ăn)
+        fetchOrders();
+        fetchFoods();
+    }, []); // Chạy 1 lần khi vào trang
 
     const fetchOrders = async () => {
         try {
@@ -32,20 +35,42 @@ function SellerDashboard() {
         } catch (err) { console.error(err); }
     };
 
-    const handleUpdateStatus = async (orderId, newStatus) => {
-        try {
-            await api.put(`/orders/${orderId}/status`, null, { params: { status: newStatus } });
-            toast.success(`Đã cập nhật đơn #${orderId} -> ${newStatus}`);
-            fetchOrders();
-        } catch (err) { toast.error("Lỗi cập nhật trạng thái"); }
-    };
-
     const fetchFoods = async () => {
         try {
             let url = branchId ? `/foods?branch_id=${branchId}` : '/foods';
             const res = await api.get(url);
             setFoods(res.data);
         } catch (err) { console.error(err); }
+    };
+
+    // --- LOGIC TÍNH TOÁN THỐNG KÊ (MỚI) ---
+    const stats = useMemo(() => {
+        const today = new Date().toDateString();
+        
+        // 1. Lọc đơn hôm nay
+        const todaysOrders = orders.filter(o => new Date(o.created_at).toDateString() === today);
+        
+        // 2. Tính doanh thu hôm nay (Chỉ tính đơn Đã thanh toán, Đang giao, Hoàn tất)
+        // Bỏ qua đơn Hủy và đơn chưa thanh toán
+        const validOrders = todaysOrders.filter(o => ['PAID', 'SHIPPING', 'COMPLETED'].includes(o.status));
+        const todayRevenue = validOrders.reduce((sum, o) => sum + o.total_price, 0);
+
+        // 3. Đơn cần xử lý gấp (Đã thanh toán nhưng chưa giao)
+        const pendingCount = orders.filter(o => o.status === 'PAID').length;
+
+        // 4. Tổng số món ăn
+        const totalFoods = foods.length;
+
+        return { todayRevenue, todayCount: todaysOrders.length, pendingCount, totalFoods };
+    }, [orders, foods]);
+    // ---------------------------------------
+
+    const handleUpdateStatus = async (orderId, newStatus) => {
+        try {
+            await api.put(`/orders/${orderId}/status`, null, { params: { status: newStatus } });
+            toast.success(`Đã cập nhật đơn #${orderId} -> ${newStatus}`);
+            fetchOrders();
+        } catch (err) { toast.error("Lỗi cập nhật trạng thái"); }
     };
 
     const handleAddFood = async (e) => {
@@ -85,11 +110,34 @@ function SellerDashboard() {
                 <div><h2>💼 Kênh Người Bán ({sellerMode === 'owner' ? 'Chủ' : 'NV'})</h2>{branchId && <small>Chi nhánh ID: {branchId}</small>}</div>
                 <button onClick={() => { localStorage.clear(); navigate('/'); }} className="logout-btn">Đăng xuất</button>
             </header>
+
+            {/* --- KHU VỰC THỐNG KÊ (MỚI) --- */}
+            <div className="stats-grid" style={{display: 'flex', gap: '20px', marginBottom: '30px', flexWrap: 'wrap'}}>
+                <div style={{flex: 1, background: '#4e73df', color: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)'}}>
+                    <div style={{fontSize: '0.9rem', opacity: 0.8}}>DOANH THU HÔM NAY</div>
+                    <div style={{fontSize: '1.8rem', fontWeight: 'bold'}}>{formatMoney(stats.todayRevenue)}</div>
+                </div>
+                <div style={{flex: 1, background: '#1cc88a', color: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)'}}>
+                    <div style={{fontSize: '0.9rem', opacity: 0.8}}>ĐƠN HÀNG HÔM NAY</div>
+                    <div style={{fontSize: '1.8rem', fontWeight: 'bold'}}>{stats.todayCount} đơn</div>
+                </div>
+                <div style={{flex: 1, background: '#f6c23e', color: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)'}}>
+                    <div style={{fontSize: '0.9rem', opacity: 0.8}}>CHỜ XỬ LÝ (PAID)</div>
+                    <div style={{fontSize: '1.8rem', fontWeight: 'bold'}}>{stats.pendingCount} đơn</div>
+                </div>
+                <div style={{flex: 1, background: '#36b9cc', color: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)'}}>
+                    <div style={{fontSize: '0.9rem', opacity: 0.8}}>TỔNG MÓN ĂN</div>
+                    <div style={{fontSize: '1.8rem', fontWeight: 'bold'}}>{stats.totalFoods} món</div>
+                </div>
+            </div>
+            {/* ------------------------------- */}
+
             <div className="tabs">
-                <button className={activeTab === 'orders' ? 'active' : ''} onClick={() => setActiveTab('orders')}>📦 Đơn hàng</button>
+                <button className={activeTab === 'orders' ? 'active' : ''} onClick={() => setActiveTab('orders')}>📦 Quản lý Đơn hàng</button>
                 <button className={activeTab === 'menu' ? 'active' : ''} onClick={() => setActiveTab('menu')}>🍽️ Thực đơn</button>
                 <button className={activeTab === 'coupons' ? 'active' : ''} onClick={() => setActiveTab('coupons')}>🎟️ Mã giảm giá</button>
             </div>
+
             {activeTab === 'orders' && (
                 <div className="tab-content">
                     <table className="data-table">
@@ -114,6 +162,7 @@ function SellerDashboard() {
                     </table>
                 </div>
             )}
+
             {activeTab === 'menu' && (
                 <div className="tab-content">
                     {sellerMode === 'owner' && <div className="add-form"><form onSubmit={handleAddFood}><input placeholder="Tên món" value={newFood.name} onChange={e => setNewFood({...newFood, name: e.target.value})} required /><input type="number" placeholder="Giá" value={newFood.price} onChange={e => setNewFood({...newFood, price: e.target.value})} required /><input type="number" placeholder="Giảm %" value={newFood.discount} onChange={e => setNewFood({...newFood, discount: e.target.value})} /><button type="submit">Thêm món</button></form></div>}
@@ -123,6 +172,7 @@ function SellerDashboard() {
                     </table>
                 </div>
             )}
+            
             {activeTab === 'coupons' && sellerMode === 'owner' && (
                 <div className="tab-content"><div className="add-form"><form onSubmit={handleCreateCoupon}><input placeholder="Mã Code" value={newCoupon.code} onChange={e => setNewCoupon({...newCoupon, code: e.target.value})} required /><input type="number" placeholder="Giảm %" value={newCoupon.discount_percent} onChange={e => setNewCoupon({...newCoupon, discount_percent: e.target.value})} required /><button type="submit">Tạo mã</button></form></div></div>
             )}

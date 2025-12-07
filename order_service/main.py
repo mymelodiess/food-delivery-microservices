@@ -1,7 +1,7 @@
 import os
 import httpx
 from fastapi import FastAPI, Depends, HTTPException, Request
-from sqlalchemy.orm import Session, joinedload # <--- THÊM IMPORT NÀY
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from pydantic import BaseModel
 from database import SessionLocal, engine, Base
@@ -43,7 +43,7 @@ async def create_order(payload: OrderCreate, db: Session = Depends(get_db)):
     order_items_data = []
 
     async with httpx.AsyncClient() as client:
-        # 1. Tính tiền
+        # 1. Tính tiền & Lấy thông tin món (Gồm cả ảnh)
         for item in payload.items:
             try:
                 resp = await client.get(f"{RESTAURANT_SERVICE_URL}/foods/{item.food_id}")
@@ -58,7 +58,8 @@ async def create_order(payload: OrderCreate, db: Session = Depends(get_db)):
                     "food_id": item.food_id,
                     "food_name": food_data['name'],
                     "price": final_item_price,
-                    "quantity": item.quantity
+                    "quantity": item.quantity,
+                    "image_url": food_data.get('image_url') # <--- Lấy ảnh
                 })
             except Exception:
                 raise HTTPException(status_code=503, detail="Lỗi kết nối Restaurant Service")
@@ -96,14 +97,15 @@ async def create_order(payload: OrderCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_order)
 
-    # Lưu món ăn
+    # Lưu món ăn (Kèm ảnh)
     for item in order_items_data:
         new_item = models.OrderItem(
             order_id=new_order.id,
             food_id=item['food_id'],
             food_name=item['food_name'],
             price=item['price'],
-            quantity=item['quantity']
+            quantity=item['quantity'],
+            image_url=item['image_url'] # <--- Lưu vào DB
         )
         db.add(new_item)
     
@@ -111,18 +113,16 @@ async def create_order(payload: OrderCreate, db: Session = Depends(get_db)):
 
     return {"order_id": new_order.id, "total_price": final_price, "status": "PENDING_PAYMENT"}
 
-# --- CÁC API LẤY ĐƠN HÀNG (ĐÃ SỬA ĐỂ TRẢ VỀ ITEMS) ---
-
+# --- CÁC API LẤY ĐƠN HÀNG ---
 @app.get("/orders")
 def get_orders(branch_id: Optional[int] = None, db: Session = Depends(get_db)):
-    q = db.query(models.Order).options(joinedload(models.Order.items)) # <--- Lấy luôn items
+    q = db.query(models.Order).options(joinedload(models.Order.items))
     if branch_id:
         q = q.filter(models.Order.branch_id == branch_id)
     return q.order_by(models.Order.created_at.desc()).all()
 
 @app.get("/orders/my-orders")
 def get_my_orders(user_id: int, db: Session = Depends(get_db)):
-    # QUAN TRỌNG: Thêm joinedload để lấy danh sách món ăn đi kèm
     orders = db.query(models.Order).options(joinedload(models.Order.items))\
                .filter(models.Order.user_id == user_id)\
                .order_by(models.Order.created_at.desc()).all()
@@ -136,8 +136,7 @@ def get_order_detail(order_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Order not found")
     return order
 
-# --- CÁC API CẬP NHẬT ---
-
+# --- CÁC API KHÁC (UPDATE, CHECK REVIEW) ---
 @app.put("/orders/{order_id}/paid")
 def mark_paid(order_id: int, db: Session = Depends(get_db)):
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
@@ -149,14 +148,11 @@ def mark_paid(order_id: int, db: Session = Depends(get_db)):
 @app.put("/orders/{order_id}/status")
 def update_status(order_id: int, status: str, db: Session = Depends(get_db)):
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    
+    if not order: raise HTTPException(status_code=404, detail="Order not found")
     order.status = status
     db.commit()
     return {"message": f"Updated to {status}"}
 
-# --- API CHECK REVIEW ---
 @app.get("/orders/{order_id}/check-review")
 def check_review_permission(order_id: int, user_id: int, db: Session = Depends(get_db)):
     order = db.query(models.Order).filter(models.Order.id == order_id).first()

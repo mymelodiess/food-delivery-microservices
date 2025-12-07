@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import api from './api';
 
+// Định nghĩa URL gốc để load ảnh
+const API_URL = "http://localhost:8000";
+
 function OrderHistory() {
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -41,7 +44,6 @@ function OrderHistory() {
     };
 
     const openReviewModal = (order) => {
-        // Kiểm tra xem đơn hàng có món ăn (items) không
         if (!order.items || order.items.length === 0) {
             toast.error("Không tìm thấy thông tin món ăn trong đơn này!");
             return;
@@ -56,10 +58,7 @@ function OrderHistory() {
         const token = localStorage.getItem('access_token');
 
         try {
-            // Lấy trực tiếp items từ đơn hàng đã chọn (không cần gọi API lại)
             const items = selectedOrder.items; 
-
-            // Tạo payload
             const payload = {
                 order_id: selectedOrder.id,
                 rating_general: reviewData.rating,
@@ -84,13 +83,7 @@ function OrderHistory() {
     };
 
     const renderStatus = (status) => {
-        const styles = {
-            'PENDING_PAYMENT': { color: 'orange', label: '⏳ Chờ thanh toán' },
-            'PAID': { color: 'green', label: '✅ Đã thanh toán' },
-            'SHIPPING': { color: 'blue', label: '🚚 Đang giao' },
-            'COMPLETED': { color: 'gray', label: '🎉 Hoàn tất' },
-            'CANCELLED': { color: 'red', label: '❌ Đã hủy' }
-        };
+        const styles = { 'PENDING_PAYMENT': {color:'orange', label:'⏳ Chờ thanh toán'}, 'PAID': {color:'green', label:'✅ Đã thanh toán'}, 'SHIPPING': {color:'blue', label:'🚚 Đang giao'}, 'COMPLETED': {color:'gray', label:'🎉 Hoàn tất'}, 'CANCELLED': {color:'red', label:'❌ Đã hủy'} };
         const s = styles[status] || { color: 'black', label: status };
         return <span style={{ color: s.color, fontWeight: 'bold' }}>{s.label}</span>;
     };
@@ -113,12 +106,26 @@ function OrderHistory() {
                             <div>{renderStatus(order.status)}</div>
                         </div>
                         
-                        {/* --- PHẦN HIỂN THỊ MÓN ĂN (MỚI) --- */}
+                        {/* --- DANH SÁCH MÓN ĂN (CÓ ẢNH) --- */}
                         <div style={{background: '#f9f9f9', padding: '10px', borderRadius: '5px', margin: '10px 0'}}>
                             {order.items && order.items.length > 0 ? (
                                 order.items.map((item, idx) => (
-                                    <div key={idx} style={{display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', marginBottom: '5px'}}>
-                                        <span>• {item.quantity}x <b>{item.food_name}</b></span>
+                                    <div key={idx} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.9rem', marginBottom: '8px'}}>
+                                        <div style={{display: 'flex', alignItems: 'center'}}>
+                                            {/* Ảnh Thumbnail */}
+                                            {item.image_url ? (
+                                                <img 
+                                                    src={`${API_URL}${item.image_url}`} 
+                                                    alt="" 
+                                                    style={{width: '35px', height: '35px', objectFit: 'cover', borderRadius: '4px', marginRight: '10px'}} 
+                                                />
+                                            ) : (
+                                                // Icon dự phòng nếu không có ảnh
+                                                <span style={{width: '35px', height: '35px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#eee', borderRadius: '4px', marginRight: '10px'}}>🍖</span>
+                                            )}
+                                            
+                                            <span>{item.quantity}x <b>{item.food_name}</b></span>
+                                        </div>
                                         <span style={{color: '#666'}}>{formatMoney(item.price)}</span>
                                     </div>
                                 ))
@@ -126,7 +133,7 @@ function OrderHistory() {
                                 <p style={{color: '#999', fontSize: '0.9rem'}}>Không có thông tin món ăn</p>
                             )}
                         </div>
-                        {/* ----------------------------------- */}
+                        {/* ---------------------------------- */}
 
                         <div style={{margin:'10px 0', fontSize: '0.9rem'}}>📍 {order.delivery_address}</div>
                         

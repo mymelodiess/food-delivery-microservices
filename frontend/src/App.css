@@ -149,3 +149,29 @@ button:disabled {
 .star-rating { font-size: 30px; cursor: pointer; color: #ddd; margin: 0 5px;}
 .star-rating.active { color: #ffc107; } 
 .review-textarea { width: 100%; height: 80px; margin-top: 15px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+/* --- FOOD IMAGES --- */
+.food-card img {
+  width: 100%;
+  height: 150px; /* Chiều cao cố định để các thẻ bằng nhau */
+  object-fit: cover; /* Cắt ảnh vừa khung, không bị méo */
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+.cart-thumb {
+  width: 50px;
+  height: 50px;
+  object-fit: cover;
+  border-radius: 4px;
+  margin-right: 10px;
+  vertical-align: middle;
+}
+
+.checkout-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 4px;
+  margin-right: 10px;
+  vertical-align: middle;
+}

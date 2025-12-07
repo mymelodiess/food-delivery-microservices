@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import api from './api';
 
+// Định nghĩa đường dẫn gốc để load ảnh
+const API_URL = "http://localhost:8000";
+
 function Shop() {
     const [foods, setFoods] = useState([]);
     const [searchTerm, setSearchTerm] = useState(''); 
@@ -71,16 +74,21 @@ function Shop() {
             <div className="food-grid">
                 {foods.map((food, index) => (
                     <div key={index} className="food-card" onClick={() => handleViewOptions(food.name)}>
-                        <div className="food-image-placeholder">🍖</div>
+                        {/* --- LOGIC HIỂN THỊ ẢNH --- */}
+                        {food.image_url ? (
+                            <img src={`${API_URL}${food.image_url}`} alt={food.name} />
+                        ) : (
+                            <div className="food-image-placeholder">🍖</div>
+                        )}
+                        {/* ------------------------- */}
+                        
                         <h3>{food.name}</h3>
                         
-                        {/* --- HIỂN THỊ SAO --- */}
                         <div style={{color: '#f6c23e', marginBottom: '5px', fontSize: '0.9rem'}}>
                             {food.avg_rating > 0 ? (
                                 <>★ <b>{food.avg_rating}</b> <span style={{color: '#999'}}>({food.review_count})</span></>
                             ) : <span style={{color: '#ccc', fontSize: '0.8rem'}}>Chưa có đánh giá</span>}
                         </div>
-                        {/* ------------------- */}
 
                         <p className="price-range">
                             {formatMoney(food.min_price)} {food.min_price !== food.max_price && ` - ${formatMoney(food.max_price)}`}
@@ -98,11 +106,15 @@ function Shop() {
                         <div className="options-list">
                             {foodOptions.map((opt) => (
                                 <div key={opt.food_id} className="option-item">
-                                    <div className="option-info">
-                                        <strong>{opt.branch_name}</strong>
-                                        <div>
-                                            {opt.discount > 0 && <span className="old-price">{formatMoney(opt.original_price)}</span>}
-                                            <span className="final-price">{formatMoney(opt.final_price)}</span>
+                                    {/* Hiển thị ảnh nhỏ trong modal chọn quán */}
+                                    <div style={{display:'flex', alignItems:'center'}}>
+                                        {opt.image_url && <img src={`${API_URL}${opt.image_url}`} style={{width:'50px', height:'50px', objectFit:'cover', borderRadius:'4px', marginRight:'10px'}} />}
+                                        <div className="option-info">
+                                            <strong>{opt.branch_name}</strong>
+                                            <div>
+                                                {opt.discount > 0 && <span className="old-price">{formatMoney(opt.original_price)}</span>}
+                                                <span className="final-price">{formatMoney(opt.final_price)}</span>
+                                            </div>
                                         </div>
                                     </div>
                                     <button onClick={() => handleAddToCart(opt)}>+ Thêm</button>

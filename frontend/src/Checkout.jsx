@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import api from './api';
 
+const API_URL = "http://localhost:8000";
+
 function Checkout() {
     const location = useLocation();
     const navigate = useNavigate();
@@ -10,43 +12,31 @@ function Checkout() {
 
     const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', address: '', note: '' });
     const [branchName, setBranchName] = useState('Đang tải...');
-    const [savedAddresses, setSavedAddresses] = useState([]); // State lưu danh sách địa chỉ lấy về
+    const [savedAddresses, setSavedAddresses] = useState([]); 
     const [loading, setLoading] = useState(false);
     const [step, setStep] = useState(1);
 
     useEffect(() => {
-        if (!items || items.length === 0) {
-            navigate('/shop');
-            return;
-        }
+        if (!items || items.length === 0) { navigate('/shop'); return; }
         if (branch_id) fetchBranchInfo();
-        fetchSavedAddresses(); // Tải địa chỉ khi vào trang
+        fetchSavedAddresses(); 
     }, [items, branch_id, navigate]);
 
-    // --- HÀM MỚI: Tải địa chỉ ---
     const fetchSavedAddresses = async () => {
         const token = localStorage.getItem('access_token');
         if (!token) return;
         try {
-            const res = await api.get('/users/addresses', {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const res = await api.get('/users/addresses', { headers: { Authorization: `Bearer ${token}` } });
             setSavedAddresses(res.data);
         } catch (err) { console.error(err); }
     };
 
-    // --- HÀM MỚI: Xử lý khi chọn địa chỉ nhanh ---
     const handleSelectAddress = (e) => {
         const addrId = e.target.value;
         if (!addrId) return;
-
         const selected = savedAddresses.find(a => a.id == addrId);
         if (selected) {
-            setCustomerInfo(prev => ({
-                ...prev,
-                phone: selected.phone,
-                address: selected.address
-            }));
+            setCustomerInfo(prev => ({ ...prev, name: selected.name, phone: selected.phone, address: selected.address }));
             toast.info(`Đã chọn: ${selected.title}`);
         }
     };
@@ -62,10 +52,9 @@ function Checkout() {
 
     const handleConfirmOrder = async () => {
         if (!customerInfo.address || !customerInfo.phone || !customerInfo.name) {
-            toast.warning("Vui lòng điền đầy đủ thông tin giao hàng! ✍️");
+            toast.warning("Vui lòng điền đầy đủ thông tin! ✍️");
             return;
         }
-
         setLoading(true);
         const userId = localStorage.getItem('user_id');
 
@@ -80,22 +69,16 @@ function Checkout() {
                 delivery_address: customerInfo.address,
                 note: customerInfo.note
             };
-
             const orderRes = await api.post('/checkout', orderPayload);
             const { order_id, total_price } = orderRes.data;
-
             await api.post('/pay', { order_id: order_id, amount: total_price });
-
             setStep(3);
             toast.success("Đặt hàng thành công! 🚀");
             try { await api.delete('/cart'); } catch(e) {}
-
         } catch (err) {
             console.error(err);
             toast.error("Lỗi xử lý đơn hàng");
-        } finally {
-            setLoading(false);
-        }
+        } finally { setLoading(false); }
     };
 
     const formatMoney = (a) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(a);
@@ -107,23 +90,15 @@ function Checkout() {
                 <div className="checkout-layout" style={{display: 'flex', gap: '20px', flexWrap: 'wrap'}}>
                     <div className="info-section" style={{flex: 1, minWidth: '300px'}}>
                         <h2>📍 Thông tin giao hàng</h2>
-                        
-                        {/* --- PHẦN CHỌN ĐỊA CHỈ NHANH --- */}
                         {savedAddresses.length > 0 && (
                             <div style={{marginBottom: '15px', padding: '10px', background: '#e9ecef', borderRadius: '5px'}}>
-                                <label style={{fontWeight: 'bold'}}>⚡ Chọn nhanh từ sổ địa chỉ:</label>
+                                <label style={{fontWeight: 'bold'}}>⚡ Chọn nhanh:</label>
                                 <select onChange={handleSelectAddress} style={{width: '100%', padding: '8px', marginTop: '5px'}}>
-                                    <option value="">-- Chọn địa chỉ --</option>
-                                    {savedAddresses.map(addr => (
-                                        <option key={addr.id} value={addr.id}>
-                                            {addr.title} - {addr.address}
-                                        </option>
-                                    ))}
+                                    <option value="">-- Sổ địa chỉ --</option>
+                                    {savedAddresses.map(addr => (<option key={addr.id} value={addr.id}>{addr.title} ({addr.name}) - {addr.address}</option>))}
                                 </select>
                             </div>
                         )}
-                        {/* -------------------------------- */}
-
                         <div className="auth-form">
                             <label>Họ tên:</label><input name="name" value={customerInfo.name} onChange={handleChange} placeholder="Nguyễn Văn A" />
                             <label>SĐT:</label><input name="phone" value={customerInfo.phone} onChange={handleChange} placeholder="098..." />
@@ -136,19 +111,23 @@ function Checkout() {
                         <h3 style={{marginTop:0}}>🧾 Đơn từ: <span style={{color: '#007bff'}}>{branchName}</span></h3>
                         <ul style={{listStyle:'none', padding:0}}>
                             {items.map(item => (
-                                <li key={item.food_id} style={{display:'flex', justifyContent:'space-between', marginBottom:'8px'}}>
-                                    <span><b>{item.quantity}x</b> {item.name}</span><span>{formatMoney(item.price*item.quantity)}</span>
+                                <li key={item.food_id} style={{display:'flex', alignItems: 'center', justifyContent:'space-between', marginBottom:'8px'}}>
+                                    <div style={{display:'flex', alignItems: 'center'}}>
+                                        {/* HIỂN THỊ ẢNH NHỎ */}
+                                        {item.image_url && <img src={`${API_URL}${item.image_url}`} className="checkout-thumb" alt="" />}
+                                        <span><b>{item.quantity}x</b> {item.name}</span>
+                                    </div>
+                                    <span>{formatMoney(item.price*item.quantity)}</span>
                                 </li>
                             ))}
                         </ul>
                         <hr/>
                         {coupon && <div style={{display:'flex', justifyContent:'space-between', color:'green'}}><span>Mã giảm ({coupon.code}):</span><span>-{coupon.discount_percent}%</span></div>}
                         <div style={{display:'flex', justifyContent:'space-between', fontSize:'1.3rem', fontWeight:'bold', marginTop:'15px', color:'#d32f2f'}}><span>Tổng:</span><span>{formatMoney(final_price)}</span></div>
-                        
                         <div style={{marginTop: '20px', display: 'flex', gap: '10px'}}>
                             <button onClick={() => navigate('/cart')} style={{flex: 1, padding: '10px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px'}}>Quay lại</button>
                             <button onClick={handleConfirmOrder} disabled={loading} style={{flex: 2, padding: '10px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 'bold'}}>
-                                {loading ? <><span className="spinner"></span> Đang xử lý...</> : "ĐẶT HÀNG NGAY"}
+                                {loading ? <><span className="spinner"></span> Xử lý...</> : "ĐẶT HÀNG NGAY"}
                             </button>
                         </div>
                     </div>

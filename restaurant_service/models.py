@@ -18,11 +18,14 @@ class Food(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), index=True)
     price = Column(Float)
-    discount = Column(Integer, default=0) 
+    discount = Column(Integer, default=0)
+    
+    # --- THÊM CỘT NÀY ---
+    image_url = Column(String(500), nullable=True) 
+    # --------------------
+    
     branch_id = Column(Integer, ForeignKey("branches.id"))
     branch = relationship("Branch", back_populates="foods")
-    
-    # --- THÊM DÒNG NÀY ĐỂ LẤY ĐÁNH GIÁ CỦA MÓN ---
     reviews = relationship("FoodRating", back_populates="food")
 
 class Coupon(Base):

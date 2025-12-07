@@ -1,14 +1,22 @@
 import httpx
-from fastapi import FastAPI, Depends, HTTPException, Request
+import shutil
+import os
+import uuid
+from fastapi import FastAPI, Depends, HTTPException, Request, File, UploadFile, Form
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from database import SessionLocal, engine, Base
 import models
-from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel  # <--- ĐÃ THÊM DÒNG NÀY (QUAN TRỌNG)
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+
+# --- CẤU HÌNH THƯ MỤC ẢNH ---
+os.makedirs("static", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 def get_db():
     db = SessionLocal()
@@ -22,66 +30,46 @@ async def verify_user(request: Request):
     if not token: raise HTTPException(401, "Missing Token")
     try:
         async with httpx.AsyncClient() as client:
-            # Gọi User Service để check token
             res = await client.get("http://user_service:8001/verify", headers={"Authorization": token})
             if res.status_code != 200: raise HTTPException(401, "Invalid Token")
             return res.json()
     except Exception as e: raise HTTPException(401, str(e))
 
-# --- INPUT MODELS ---
-class FoodRatingInput(BaseModel):
-    food_id: int
-    score: int
-
-class ReviewInput(BaseModel):
-    order_id: int
-    rating_general: int
-    comment: str
-    items: List[FoodRatingInput]
-
-# --- API XỬ LÝ REVIEW ---
-@app.post("/reviews")
-async def create_review(payload: ReviewInput, request: Request, db: Session = Depends(get_db)):
+# --- API TẠO MÓN (UPLOAD ẢNH) ---
+@app.post("/foods")
+async def create_food(
+    request: Request,
+    name: str = Form(...),
+    price: float = Form(...),
+    discount: int = Form(0),
+    image: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db)
+):
     user = await verify_user(request)
+    if user['role'] != 'seller': raise HTTPException(403, "Only Seller")
     
-    # 1. Gọi Order Service để kiểm tra đơn hàng có hợp lệ để review không
-    async with httpx.AsyncClient() as client:
-        check_url = f"http://order_service:8003/orders/{payload.order_id}/check-review"
-        try:
-            res = await client.get(check_url, params={"user_id": user['id']})
-            if res.status_code != 200: 
-                raise HTTPException(400, res.json().get("detail", "Error verifying order"))
-            data = res.json()
-            branch_id = data.get('branch_id')
-        except Exception as e: 
-            raise HTTPException(500, f"Order Service Error: {str(e)}")
+    image_url = None
+    if image:
+        file_extension = image.filename.split(".")[-1]
+        file_name = f"{uuid.uuid4()}.{file_extension}"
+        file_path = f"static/{file_name}"
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(image.file, buffer)
+        image_url = f"/static/{file_name}"
 
-    # 2. Lưu Review vào DB
-    try:
-        new_review = models.OrderReview(
-            user_id=user['id'], 
-            user_name=user.get('email'), # Hoặc user.get('name') nếu có
-            order_id=payload.order_id, 
-            branch_id=branch_id, 
-            rating_general=payload.rating_general, 
-            comment=payload.comment
-        )
-        db.add(new_review)
-        db.flush() # Để lấy ID review
-        
-        for item in payload.items:
-            db.add(models.FoodRating(
-                review_id=new_review.id, 
-                food_id=item.food_id, 
-                score=item.score
-            ))
-        db.commit()
-        return {"message": "Review added successfully"}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(500, str(e))
+    new_food = models.Food(
+        name=name, 
+        price=price, 
+        branch_id=user.get('branch_id'), 
+        discount=discount,
+        image_url=image_url
+    )
+    db.add(new_food)
+    db.commit()
+    db.refresh(new_food)
+    return new_food
 
-# --- API TRA CỨU MÓN ĂN (CÓ TÍNH SAO) ---
+# --- API TÌM KIẾM ---
 @app.get("/foods/search")
 def search_foods(q: str = None, db: Session = Depends(get_db)):
     query = db.query(models.Food)
@@ -92,8 +80,6 @@ def search_foods(q: str = None, db: Session = Depends(get_db)):
     for f in all_foods:
         final_price = f.price * (1 - f.discount / 100)
         
-        # --- TÍNH ĐIỂM TRUNG BÌNH ---
-        # Lấy danh sách điểm số từ bảng FoodRating
         ratings = [r.score for r in f.reviews]
         if ratings:
             avg_rating = round(sum(ratings) / len(ratings), 1)
@@ -101,7 +87,6 @@ def search_foods(q: str = None, db: Session = Depends(get_db)):
         else:
             avg_rating = 0
             review_count = 0
-        # -----------------------------
 
         if f.name not in grouped: 
             grouped[f.name] = {
@@ -109,18 +94,18 @@ def search_foods(q: str = None, db: Session = Depends(get_db)):
                 "min_price": final_price, 
                 "max_price": final_price, 
                 "branch_count": 1,
-                "avg_rating": avg_rating,       # Trả về số sao
-                "review_count": review_count    # Trả về số lượng đánh giá
+                "avg_rating": avg_rating,
+                "review_count": review_count,
+                "image_url": f.image_url
             }
         else:
             if final_price < grouped[f.name]["min_price"]: grouped[f.name]["min_price"] = final_price
             if final_price > grouped[f.name]["max_price"]: grouped[f.name]["max_price"] = final_price
             grouped[f.name]["branch_count"] += 1
-            
-            # Logic gộp: Lấy rating mới nhất hoặc cao nhất (đơn giản hóa)
             if review_count > grouped[f.name]["review_count"]:
                  grouped[f.name]["avg_rating"] = avg_rating
                  grouped[f.name]["review_count"] = review_count
+                 if f.image_url: grouped[f.name]["image_url"] = f.image_url
 
     return list(grouped.values())
 
@@ -137,7 +122,8 @@ def get_food_options(name: str, db: Session = Depends(get_db)):
             "branch_name": branch.name if branch else "Unknown", 
             "original_price": f.price, 
             "discount": f.discount, 
-            "final_price": final_price
+            "final_price": final_price,
+            "image_url": f.image_url
         })
     results.sort(key=lambda x: x['final_price'])
     return results
@@ -148,15 +134,13 @@ def get_food_detail(food_id: int, db: Session = Depends(get_db)):
     if not food: raise HTTPException(status_code=404, detail="Food not found")
     return food
 
-# --- CÁC API QUẢN LÝ KHÁC (GIỮ NGUYÊN) ---
+# --- CÁC API KHÁC ---
 @app.post("/coupons")
 async def create_coupon(coupon: dict, request: Request, db: Session = Depends(get_db)):
     user = await verify_user(request)
     if user['role'] != 'seller': raise HTTPException(403, "Only Seller")
-    
     seller_branch_id = user.get('branch_id')
     if not seller_branch_id: raise HTTPException(400, "No branch")
-    
     new_coupon = models.Coupon(code=coupon['code'].upper(), discount_percent=coupon['discount_percent'], branch_id=seller_branch_id)
     db.add(new_coupon)
     db.commit()
@@ -168,17 +152,6 @@ def verify_coupon(code: str, branch_id: int, db: Session = Depends(get_db)):
     coupon = db.query(models.Coupon).filter(models.Coupon.code == code.upper(), models.Coupon.branch_id == branch_id, models.Coupon.is_active == True).first()
     if not coupon: raise HTTPException(404, "Invalid")
     return {"valid": True, "discount_percent": coupon.discount_percent, "code": coupon.code}
-
-@app.post("/foods")
-async def create_food(food: dict, request: Request, db: Session = Depends(get_db)):
-    user = await verify_user(request)
-    if user['role'] != 'seller': raise HTTPException(403, "Only Seller")
-    
-    new_food = models.Food(name=food['name'], price=food['price'], branch_id=user.get('branch_id'), discount=food.get('discount', 0))
-    db.add(new_food)
-    db.commit()
-    db.refresh(new_food)
-    return new_food
 
 @app.get("/foods") 
 def read_foods(branch_id: int = None, db: Session = Depends(get_db)):
@@ -212,3 +185,38 @@ def get_branch_detail(branch_id: int, db: Session = Depends(get_db)):
     b = db.query(models.Branch).filter(models.Branch.id == branch_id).first()
     if not b: raise HTTPException(404, "Branch not found")
     return b
+
+# --- API REVIEWS (Sửa lại BaseModel) ---
+class FoodRatingInput(BaseModel):
+    food_id: int
+    score: int
+
+class ReviewInput(BaseModel):
+    order_id: int
+    rating_general: int
+    comment: str
+    items: List[FoodRatingInput]
+
+@app.post("/reviews")
+async def create_review(payload: ReviewInput, request: Request, db: Session = Depends(get_db)):
+    user = await verify_user(request)
+    async with httpx.AsyncClient() as client:
+        check_url = f"http://order_service:8003/orders/{payload.order_id}/check-review"
+        try:
+            res = await client.get(check_url, params={"user_id": user['id']})
+            if res.status_code != 200: raise HTTPException(400, res.json().get("detail", "Error verifying order"))
+            data = res.json()
+            branch_id = data.get('branch_id')
+        except Exception as e: raise HTTPException(500, f"Order Service Error: {str(e)}")
+
+    try:
+        new_review = models.OrderReview(user_id=user['id'], user_name=user.get('email'), order_id=payload.order_id, branch_id=branch_id, rating_general=payload.rating_general, comment=payload.comment)
+        db.add(new_review)
+        db.flush()
+        for item in payload.items:
+            db.add(models.FoodRating(review_id=new_review.id, food_id=item.food_id, score=item.score))
+        db.commit()
+        return {"message": "Review added successfully"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, str(e))

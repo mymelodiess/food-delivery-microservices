@@ -14,3 +14,15 @@ class Payment(Base):
     
     status = Column(String(50), default="SUCCESS")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+# --- BẢNG MỚI: SỔ THANH TOÁN ---
+class PaymentMethod(Base):
+    __tablename__ = "payment_methods"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True)
+    
+    card_number = Column(String(20)) # Lưu số thẻ
+    card_holder = Column(String(100)) # Tên chủ thẻ
+    expiry_date = Column(String(10))  # MM/YY
+    bank_name = Column(String(50))    # Tên ngân hàng

@@ -10,6 +10,7 @@ import Cart from './Cart';
 import Checkout from './Checkout';
 import OrderHistory from './OrderHistory';
 import Profile from './Profile';
+import PaymentPage from './PaymentPage';
 import './App.css';
 
 
@@ -36,6 +37,7 @@ function App() {
         <Route path="/shop" element={<Shop />} />
         <Route path="/cart" element={<Cart />} />
         <Route path="/checkout" element={<Checkout />} />
+        <Route path="/payment" element={<PaymentPage />} />
         <Route path="/history" element={<OrderHistory />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/seller-dashboard" element={<SellerDashboard />} />

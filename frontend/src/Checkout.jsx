@@ -14,7 +14,7 @@ function Checkout() {
     const [branchName, setBranchName] = useState('Đang tải...');
     const [savedAddresses, setSavedAddresses] = useState([]); 
     const [loading, setLoading] = useState(false);
-    const [step, setStep] = useState(1);
+    const [step, setStep] = useState(1); // 1: Checkout Form, 3: Success (Dùng cho luồng cũ, nhưng ta giữ nguyên)
 
     useEffect(() => {
         if (!items || items.length === 0) { navigate('/shop'); return; }
@@ -69,16 +69,26 @@ function Checkout() {
                 delivery_address: customerInfo.address,
                 note: customerInfo.note
             };
+            
+            // 1. GỌI API TẠO ĐƠN HÀNG (Quan trọng)
             const orderRes = await api.post('/checkout', orderPayload);
             const { order_id, total_price } = orderRes.data;
-            await api.post('/pay', { order_id: order_id, amount: total_price });
-            setStep(3);
-            toast.success("Đặt hàng thành công! 🚀");
-            try { await api.delete('/cart'); } catch(e) {}
+
+            // 2. CHUYỂN HƯỚNG SANG CỔNG THANH TOÁN
+            toast.info("Đang chuyển sang cổng thanh toán...");
+            navigate('/payment', { 
+                state: { order_id: order_id, total_price: total_price } 
+            });
+
+            // Quan trọng: RETURN để thoát khỏi hàm, không chạy vào logic setStep(3)
+            return; 
+
         } catch (err) {
             console.error(err);
             toast.error("Lỗi xử lý đơn hàng");
-        } finally { setLoading(false); }
+        } finally {
+            setLoading(false);
+        }
     };
 
     const formatMoney = (a) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(a);
@@ -90,6 +100,7 @@ function Checkout() {
                 <div className="checkout-layout" style={{display: 'flex', gap: '20px', flexWrap: 'wrap'}}>
                     <div className="info-section" style={{flex: 1, minWidth: '300px'}}>
                         <h2>📍 Thông tin giao hàng</h2>
+                        {/* Phần chọn địa chỉ... */}
                         {savedAddresses.length > 0 && (
                             <div style={{marginBottom: '15px', padding: '10px', background: '#e9ecef', borderRadius: '5px'}}>
                                 <label style={{fontWeight: 'bold'}}>⚡ Chọn nhanh:</label>
@@ -113,7 +124,6 @@ function Checkout() {
                             {items.map(item => (
                                 <li key={item.food_id} style={{display:'flex', alignItems: 'center', justifyContent:'space-between', marginBottom:'8px'}}>
                                     <div style={{display:'flex', alignItems: 'center'}}>
-                                        {/* HIỂN THỊ ẢNH NHỎ */}
                                         {item.image_url && <img src={`${API_URL}${item.image_url}`} className="checkout-thumb" alt="" />}
                                         <span><b>{item.quantity}x</b> {item.name}</span>
                                     </div>
@@ -133,12 +143,13 @@ function Checkout() {
                     </div>
                 </div>
             )}
+            {/* GIỮ NGUYÊN PHẦN STEP 3 CHO HIỂN THỊ THÀNH CÔNG, DÙ BÂY GIỜ TA SẼ KHÔNG BAO GIỜ DÙNG NÓ NỮA */}
             {step === 3 && (
                 <div className="success-screen" style={{textAlign: 'center', padding: '50px', background:'white'}}>
                     <div style={{fontSize: '60px'}}>🚀</div>
                     <h2 style={{color: '#28a745'}}>Thành công!</h2>
-                    <p>Shipper đang giao món đến cho bạn.</p>
-                    <button onClick={() => navigate('/shop')} style={{marginTop: '20px', padding: '12px 30px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px'}}>Tiếp tục mua sắm</button>
+                    <p>Đơn hàng đang chờ thanh toán.</p>
+                    <button onClick={() => navigate('/history')} style={{marginTop: '20px', padding: '12px 30px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px'}}>Xem đơn hàng</button>
                 </div>
             )}
         </div>

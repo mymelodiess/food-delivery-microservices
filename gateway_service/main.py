@@ -103,8 +103,23 @@ async def orders_root(req: Request): return await forward_request(ORDER_SERVICE_
 @app.api_route("/orders/{path:path}", methods=["GET", "PUT", "DELETE"])
 async def orders_path(path: str, req: Request): return await forward_request(ORDER_SERVICE_URL, f"orders/{path}", req)
 
-# 4. PAYMENT & CART
+# ... (Phần trên giữ nguyên)
+
+# --- 4. PAYMENT SERVICE ---
 @app.api_route("/pay", methods=["POST"])
-async def pay(req: Request): return await forward_request(PAYMENT_SERVICE_URL, "pay", req)
+async def pay(req: Request):
+    return await forward_request(PAYMENT_SERVICE_URL, "pay", req)
+
+# --- THÊM ROUTE QUẢN LÝ THẺ ---
+@app.api_route("/payment-methods", methods=["GET", "POST"])
+async def payment_methods_root(req: Request):
+    return await forward_request(PAYMENT_SERVICE_URL, "payment-methods", req)
+
+@app.api_route("/payment-methods/{path:path}", methods=["DELETE"])
+async def payment_methods_path(path: str, req: Request):
+    return await forward_request(PAYMENT_SERVICE_URL, f"payment-methods/{path}", req)
+# ------------------------------
+
+# ... (Phần dưới Cart Service giữ nguyên)
 @app.api_route("/cart", methods=["GET", "POST", "PUT", "DELETE"])
 async def cart_root(req: Request): return await forward_request(CART_SERVICE_URL, "cart", req)

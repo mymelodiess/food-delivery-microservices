@@ -6,220 +6,134 @@ from datetime import datetime, timedelta
 
 # --- CẤU HÌNH ---
 GATEWAY_URL = "http://localhost:8000" 
-
-# 👇 KEY NÀY LẤY TỪ FILE .ENV BẠN GỬI
+# Key này lấy từ file .env bạn gửi
 SECRET_KEY = "thay_doi_chuoi_nay_thanh_mat_ma_bi_mat_nhe" 
-
 ALGORITHM = "HS256"
 IMAGE_FOLDER = "demo_images" 
 
-# --- HÀM TẠO TOKEN GIẢ (Bypass Auth) ---
 def create_headers(user_id, role="seller", branch_id=None, seller_mode="owner"):
     expire = datetime.utcnow() + timedelta(minutes=10)
     to_encode = {
         "sub": f"admin_seed_{user_id}",
-        "id": user_id,
-        "role": role,
-        "branch_id": branch_id,
-        "seller_mode": seller_mode, 
-        "exp": expire
+        "id": user_id, "role": role, "branch_id": branch_id, "seller_mode": seller_mode, "exp": expire
     }
     token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return {"Authorization": f"Bearer {token}"}
 
 async def seed_data():
-    print("🚀 ĐANG KHỞI TẠO DỮ LIỆU DEMO (FIXED VALIDATION)...")
-    print(f"🎯 Gateway: {GATEWAY_URL}")
+    print("🚀 ĐANG KHỞI TẠO DỮ LIỆU DEMO (AUTO-LINK BRANCH)...")
     
-    # Mật khẩu mạnh để vượt qua Validate (8 ký tự, Hoa, thường, số, đặc biệt)
     STRONG_PASS = "Admin@123" 
 
     async with httpx.AsyncClient() as client:
-        
         # ==========================================
-        # 1. TẠO 3 CHI NHÁNH
+        # 1. TẠO CHI NHÁNH
         # ==========================================
         print("\n🏢 [1] TẠO CHI NHÁNH...")
-        branches_data = [
+        branches = [
             {"name": "Cơm Tấm Sài Gòn (Q1)", "address": "123 Nguyễn Huệ, Q1", "phone": "0901111111"},
             {"name": "Cơm Tấm Chợ Lớn (Q5)", "address": "456 Trần Hưng Đạo, Q5", "phone": "0902222222"},
             {"name": "Cơm Tấm Làng ĐH (Thủ Đức)", "address": "Khu A ĐHQG", "phone": "0903333333"}
         ]
-        
         branch_ids = []
-
-        for b in branches_data:
+        for b in branches:
             try:
-                headers = create_headers(1) 
-                res = await client.post(f"{GATEWAY_URL}/branches", json=b, headers=headers)
+                # Tạo bằng user ảo ID=1
+                res = await client.post(f"{GATEWAY_URL}/branches", json=b, headers=create_headers(1))
                 if res.status_code == 200:
                     data = res.json()
                     branch_ids.append(data['id'])
                     print(f"   ✅ Đã tạo: {data['name']} (ID: {data['id']})")
-                else:
-                    print(f"   ⚠️ Lỗi tạo {b['name']}: {res.text}")
-            except Exception as e:
-                print(f"   ❌ Lỗi kết nối: {e}")
-                return
-
-        if not branch_ids:
-            print("🛑 Không tạo được chi nhánh nào. Dừng.")
-            return
-
-        # ==========================================
-        # 2. TẠO USERS (FIX PHONE & PASSWORD)
-        # ==========================================
-        print("\n👤 [2] TẠO TÀI KHOẢN (Password: Admin@123)...")
-        
-        # -> TẠO 2 KHÁCH HÀNG
-        buyers = [
-            {"email": "khach1@gmail.com", "name": "Nguyễn Văn Khách A", "phone": "0910000001"},
-            {"email": "khach2@gmail.com", "name": "Trần Thị Khách B", "phone": "0910000002"}
-        ]
-        for buyer in buyers:
-            payload = {
-                "email": buyer["email"], 
-                "password": STRONG_PASS, # <--- SỬA THÀNH PASS MẠNH
-                "name": buyer["name"],
-                "role": "buyer", 
-                "phone": buyer["phone"], # <--- ĐÃ SỬA SĐT ĐỦ 10 SỐ
-                "address": "TP.HCM"
-            }
-            try:
-                res = await client.post(f"{GATEWAY_URL}/register", json=payload)
-                if res.status_code == 200:
-                    print(f"   ✅ Buyer: {buyer['email']}")
-                else:
-                    print(f"   ❌ Lỗi Buyer {buyer['email']}: {res.text}")
             except: pass
 
-        # -> TẠO OWNER & STAFF
+        if not branch_ids: return print("🛑 Lỗi: Không tạo được chi nhánh.")
+
+        # ==========================================
+        # 2. TẠO USER & GÁN BRANCH LUÔN (QUAN TRỌNG)
+        # ==========================================
+        print("\n👤 [2] TẠO TÀI KHOẢN & GÁN QUYỀN...")
+        
+        # Khách hàng
+        for i in range(1, 3):
+            payload = {
+                "email": f"khach{i}@gmail.com", "password": STRONG_PASS, "name": f"Khách Hàng {i}",
+                "role": "buyer", "phone": f"091000000{i}", "address": "TP.HCM"
+            }
+            await client.post(f"{GATEWAY_URL}/register", json=payload)
+            print(f"   👤 Buyer: khach{i}@gmail.com")
+
+        # Chủ quán & Nhân viên (Vòng lặp quan trọng)
         for b_id in branch_ids:
-            # 2 Owners
-            for i in range(1, 3):
-                email = f"owner{i}_cn{b_id}@gmail.com"
-                # Tạo số điện thoại đảm bảo đủ 10 số (098 + b_id + 0000 + i)
-                valid_phone = f"098{b_id}00000{i}"[-10:] # Lấy 10 số cuối để chắc chắn, thêm prefix 0
-                valid_phone = "098" + f"{b_id:01d}" + f"{i:06d}" # Cách đơn giản: 098 + id_nhánh + i (padding 0)
-                # Sửa lại cách tạo sđt đơn giản nhất:
-                valid_phone = f"098{b_id:02d}000{i:02d}" # Ví dụ branch 1, user 1 -> 0980100001 (10 số)
-
-                await client.post(f"{GATEWAY_URL}/register", json={
-                    "email": email, 
-                    "password": STRONG_PASS, # <--- SỬA PASS MẠNH
-                    "name": f"Chủ {i} - CN {b_id}",
-                    "role": "seller", 
-                    "seller_mode": "owner", 
-                    "phone": valid_phone, 
-                    "address": "Tại quán"
-                })
-                print(f"   👔 Owner: {email} (Pass: {STRONG_PASS})")
+            # --- OWNER ---
+            email_owner = f"owner_cn{b_id}@gmail.com"
+            res_owner = await client.post(f"{GATEWAY_URL}/register", json={
+                "email": email_owner, "password": STRONG_PASS, "name": f"Chủ CN {b_id}",
+                "role": "seller", "seller_mode": "owner", "phone": f"098{b_id:02d}00001", "address": "Tại quán"
+            })
             
-            # 2 Staffs
-            for i in range(1, 3):
-                email = f"staff{i}_cn{b_id}@gmail.com"
-                valid_phone = f"099{b_id:02d}000{i:02d}" # Ví dụ: 0990100001
-                
-                await client.post(f"{GATEWAY_URL}/register", json={
-                    "email": email, 
-                    "password": STRONG_PASS, # <--- SỬA PASS MẠNH
-                    "name": f"NV {i} - CN {b_id}",
-                    "role": "seller", 
-                    "seller_mode": "staff", 
-                    "phone": valid_phone, 
-                    "address": "Tại quán"
-                })
-                print(f"   🧢 Staff: {email}")
+            # [MỚI] Gán Branch ID ngay lập tức
+            if res_owner.status_code == 200:
+                owner_id = res_owner.json()['id']
+                # Gọi API cập nhật chi nhánh (API này mới thêm ở User Service)
+                await client.put(f"{GATEWAY_URL}/users/{owner_id}/branch", params={"branch_id": b_id})
+                print(f"   👔 Owner: {email_owner} -> Đã gán Branch {b_id}")
+
+            # --- STAFF ---
+            email_staff = f"staff_cn{b_id}@gmail.com"
+            res_staff = await client.post(f"{GATEWAY_URL}/register", json={
+                "email": email_staff, "password": STRONG_PASS, "name": f"NV CN {b_id}",
+                "role": "seller", "seller_mode": "staff", "phone": f"099{b_id:02d}00001", "address": "Tại quán"
+            })
+
+            # [MỚI] Gán Branch ID cho Staff luôn
+            if res_staff.status_code == 200:
+                staff_id = res_staff.json()['id']
+                await client.put(f"{GATEWAY_URL}/users/{staff_id}/branch", params={"branch_id": b_id})
+                print(f"   🧢 Staff: {email_staff} -> Đã gán Branch {b_id}")
 
         # ==========================================
-        # 3. TẠO MÓN ĂN
+        # 3. TẠO MÓN ĂN & COUPON
         # ==========================================
-        print("\n🍛 [3] TẠO MÓN ĂN...")
-
+        print("\n🍛 [3] TẠO MÓN ĂN & COUPON...")
         base_foods = [
-            {"name": "Cơm Sườn Bì Chả", "base_price": 50000, "img_file": "food1.jpg"},
-            {"name": "Bún Bò Huế Đặc Biệt", "base_price": 60000, "img_file": "food2.jpg"},
-            {"name": "Phở Bò Tái Nạm", "base_price": 70000, "img_file": "food3.jpg"}
+            {"name": "Cơm Sườn Bì Chả", "price": 50000, "img": "food1.jpg"},
+            {"name": "Bún Bò Huế", "price": 60000, "img": "food2.jpg"},
+            {"name": "Phở Bò", "price": 70000, "img": "food3.jpg"}
         ]
 
-        for b_id in branch_ids:
-            # Token Owner giả lập (Bypass check role)
-            headers = create_headers(user_id=999, role="seller", branch_id=b_id, seller_mode="owner")
-            
-            price_multiplier = 1 + (b_id * 0.1)
-
-            for food in base_foods:
-                final_price = int(food["base_price"] * price_multiplier)
-                
-                data_payload = {
-                    "name": food["name"],
-                    "price": str(final_price),
-                    "discount": "0"
-                }
-
-                files_payload = {}
-                img_path = os.path.join(IMAGE_FOLDER, food["img_file"])
-                file_handle = None 
-                
-                if os.path.exists(img_path):
-                    file_handle = open(img_path, "rb")
-                    files_payload = {"image": (food["img_file"], file_handle, "image/jpeg")}
-                
-                try:
-                    res = await client.post(
-                        f"{GATEWAY_URL}/foods", 
-                        data=data_payload, 
-                        files=files_payload if files_payload else None,
-                        headers=headers
-                    )
-                    if res.status_code == 200:
-                        print(f"   ✅ CN {b_id}: {food['name']} - {final_price}đ")
-                    else:
-                        print(f"   ❌ Lỗi món ăn CN {b_id}: {res.text}")
-                
-                except Exception as e:
-                    print(f"   ❌ Lỗi: {e}")
-                
-                finally:
-                    if file_handle: file_handle.close()
-
-        # ==========================================
-        # 4. TẠO COUPONS
-        # ==========================================
-        print("\n🎟️  [4] TẠO MÃ GIẢM GIÁ...")
-        
         now = datetime.utcnow()
-        
+
         for b_id in branch_ids:
-            headers = create_headers(user_id=999, role="seller", branch_id=b_id, seller_mode="owner")
-
-            active_coupon = {
-                "code": f"GIAMNGAY{b_id}", 
-                "discount_percent": 15,
-                "start_date": (now - timedelta(days=1)).isoformat(),
-                "end_date": (now + timedelta(days=30)).isoformat()
-            }
-
-            expired_coupon = {
-                "code": f"HETHAN{b_id}",
-                "discount_percent": 50,
-                "start_date": (now - timedelta(days=30)).isoformat(),
-                "end_date": (now - timedelta(days=1)).isoformat()
-            }
-
-            for c in [active_coupon, expired_coupon]:
+            # Token giả lập Owner của chi nhánh b_id
+            headers = create_headers(999, branch_id=b_id, seller_mode="owner")
+            
+            # Tạo món
+            for food in base_foods:
+                price = int(food["price"] * (1 + b_id * 0.05)) # Giá khác nhau chút
+                data = {"name": food["name"], "price": str(price), "discount": "0"}
+                files = {}
+                path = os.path.join(IMAGE_FOLDER, food["img"])
+                if os.path.exists(path):
+                    files = {"image": (food["img"], open(path, "rb"), "image/jpeg")}
+                
                 try:
-                    res = await client.post(f"{GATEWAY_URL}/coupons", json=c, headers=headers)
-                    if res.status_code == 200:
-                        print(f"   ✅ CN {b_id}: Mã {c['code']}")
-                    else:
-                        print(f"   ⚠️ Lỗi mã {c['code']}: {res.text}")
+                    await client.post(f"{GATEWAY_URL}/foods", data=data, files=files, headers=headers)
                 except: pass
+                if files: files["image"][1].close()
+            
+            # Tạo Coupon
+            c1 = {"code": f"GIAMNGAY{b_id}", "discount_percent": 15, "start_date": str(now), "end_date": str(now + timedelta(days=30))}
+            c2 = {"code": f"HETHAN{b_id}", "discount_percent": 50, "start_date": str(now - timedelta(days=30)), "end_date": str(now - timedelta(days=1))}
+            
+            for c in [c1, c2]:
+                await client.post(f"{GATEWAY_URL}/coupons", json=c, headers=headers)
+            
+            print(f"   ✅ Xong dữ liệu CN {b_id}")
 
     print("\n------------------------------------------------")
-    print("🎉 ĐÃ HOÀN TẤT!")
-    print(f"👉 Mật khẩu chung cho tất cả user là: {STRONG_PASS}")
-    print("👉 Nhớ cập nhật 'managed_branch_id' trong Database nhé!")
+    print("🎉 HOÀN TẤT! DỮ LIỆU ĐÃ ĐƯỢC LINK TỰ ĐỘNG.")
+    print(f"👉 Mật khẩu chung: {STRONG_PASS}")
+    print("👉 Bạn có thể đăng nhập ngay mà KHÔNG cần sửa DB thủ công!")
     print("------------------------------------------------")
 
 if __name__ == "__main__":

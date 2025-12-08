@@ -185,3 +185,14 @@ def get_my_addresses(authorization: str = Header(None), db: Session = Depends(ge
     user_id = get_current_user_id(authorization)
     if not user_id: raise HTTPException(401, "Invalid Token")
     return db.query(models.UserAddress).filter(models.UserAddress.user_id == user_id).all()
+
+# --- [MỚI] API INTERNAL ĐỂ CẬP NHẬT BRANCH CHO USER (Dùng cho init_data.py) ---
+@app.put("/users/{user_id}/branch")
+def update_user_branch(user_id: int, branch_id: int, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.managed_branch_id = branch_id
+    db.commit()
+    return {"message": "Updated managed_branch_id successfully"}

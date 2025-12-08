@@ -70,24 +70,33 @@ async def verify(req: Request): return await forward_request(USER_SERVICE_URL, "
 @app.api_route("/users/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def users_path(path: str, req: Request): return await forward_request(USER_SERVICE_URL, f"users/{path}", req)
 
+# ... (Phần trên giữ nguyên)
+
 # 2. RESTAURANT
 @app.api_route("/foods", methods=["GET", "POST"])
 async def foods_root(req: Request): return await forward_request(RESTAURANT_SERVICE_URL, "foods", req)
 @app.api_route("/foods/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def foods_path(path: str, req: Request): return await forward_request(RESTAURANT_SERVICE_URL, f"foods/{path}", req)
+
 @app.api_route("/branches", methods=["GET", "POST"])
 async def branches_root(req: Request): return await forward_request(RESTAURANT_SERVICE_URL, "branches", req)
 @app.api_route("/branches/{path:path}", methods=["GET", "PUT", "DELETE"])
 async def branches_path(path: str, req: Request): return await forward_request(RESTAURANT_SERVICE_URL, f"branches/{path}", req)
-@app.api_route("/coupons", methods=["POST"])
+
+# --- [SỬA DÒNG NÀY] THÊM "GET" VÀO ĐÂY ---
+@app.api_route("/coupons", methods=["GET", "POST"]) 
 async def coupons_root(req: Request): return await forward_request(RESTAURANT_SERVICE_URL, "coupons", req)
+# ------------------------------------------
+
 @app.api_route("/coupons/{path:path}", methods=["GET", "PUT", "DELETE"])
 async def coupons_path(path: str, req: Request): return await forward_request(RESTAURANT_SERVICE_URL, f"coupons/{path}", req)
+
 @app.api_route("/reviews", methods=["POST"])
 async def reviews_root(req: Request): return await forward_request(RESTAURANT_SERVICE_URL, "reviews", req)
 @app.api_route("/reviews/{path:path}", methods=["GET"])
 async def reviews_path(path: str, req: Request): return await forward_request(RESTAURANT_SERVICE_URL, f"reviews/{path}", req)
 
+# ... (Phần dưới giữ nguyên)
 # --- QUAN TRỌNG: THÊM ROUTE STATIC ĐỂ XEM ẢNH ---
 @app.api_route("/static/{path:path}", methods=["GET"])
 async def static_files(path: str, req: Request):

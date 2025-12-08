@@ -140,8 +140,12 @@
     text-decoration: underline;
 }
 
-/* --- [MỚI] Tắt icon con mắt mặc định của trình duyệt (Edge/IE) --- */
+/* --- Tắt icon con mắt mặc định của trình duyệt --- */
 input[type="password"]::-ms-reveal,
 input[type="password"]::-ms-clear {
-    display: none;
+    display: none !important;
+}
+
+input[type="password"]::-webkit-credentials-auto-fill-button {
+    display: none !important;
 }

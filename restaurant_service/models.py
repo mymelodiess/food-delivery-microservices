@@ -20,9 +20,7 @@ class Food(Base):
     price = Column(Float)
     discount = Column(Integer, default=0)
     
-    # --- THÊM CỘT NÀY ---
     image_url = Column(String(500), nullable=True) 
-    # --------------------
     
     branch_id = Column(Integer, ForeignKey("branches.id"))
     branch = relationship("Branch", back_populates="foods")
@@ -34,8 +32,26 @@ class Coupon(Base):
     code = Column(String(50), index=True)
     discount_percent = Column(Integer)
     branch_id = Column(Integer, ForeignKey("branches.id"))
-    branch = relationship("Branch", back_populates="coupons")
+    
+    # --- THÊM CỘT NGÀY THÁNG ---
+    start_date = Column(DateTime, default=datetime.datetime.utcnow)
+    end_date = Column(DateTime)
+    
     is_active = Column(Boolean, default=True)
+
+    branch = relationship("Branch", back_populates="coupons")
+    # Quan hệ với bảng lịch sử dùng
+    usages = relationship("CouponUsage", back_populates="coupon")
+
+# --- BẢNG MỚI: LỊCH SỬ DÙNG MÃ ---
+class CouponUsage(Base):
+    __tablename__ = "coupon_usages"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True) # ID của User bên user_service
+    coupon_id = Column(Integer, ForeignKey("coupons.id"))
+    used_at = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    coupon = relationship("Coupon", back_populates="usages")
 
 # --- CÁC BẢNG REVIEW ---
 class OrderReview(Base):
@@ -65,5 +81,4 @@ class FoodRating(Base):
     food_id = Column(Integer, ForeignKey("foods.id"))
     score = Column(Integer)
     
-    # --- THÊM DÒNG NÀY ---
     food = relationship("Food", back_populates="reviews")

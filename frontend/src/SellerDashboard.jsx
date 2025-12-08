@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import api from './api';
 
-// Đường dẫn gốc của API (để hiển thị ảnh)
 const API_URL = "http://localhost:8000"; 
 
 function SellerDashboard() {
@@ -15,15 +14,25 @@ function SellerDashboard() {
     const [activeTab, setActiveTab] = useState('orders');
     const [foods, setFoods] = useState([]);
     const [orders, setOrders] = useState([]);
-    
-    // Form thêm món
+    const [coupons, setCoupons] = useState([]);
+
+    // Form thêm/sửa món
     const [newFood, setNewFood] = useState({ name: '', price: '', discount: 0 });
-    // State lưu file ảnh
     const [imageFile, setImageFile] = useState(null); 
+    const [editingFoodId, setEditingFoodId] = useState(null); 
     
-    const [newCoupon, setNewCoupon] = useState({ code: '', discount_percent: 0 });
+    // Form tạo coupon
+    const [newCoupon, setNewCoupon] = useState({ 
+        code: '', discount_percent: 0, start_date: '', end_date: ''
+    });
 
     useEffect(() => {
+        // Log để kiểm tra xem localStorage có gì
+        console.log("--- DEBUG DASHBOARD ---");
+        console.log("Role:", role);
+        console.log("Seller Mode:", sellerMode);
+        console.log("Branch ID:", branchId);
+
         if (role !== 'seller') {
             toast.error("Không có quyền truy cập!");
             navigate('/');
@@ -31,6 +40,7 @@ function SellerDashboard() {
         }
         fetchOrders();
         fetchFoods();
+        fetchCoupons(); // Gọi hàm lấy danh sách (Giờ ai cũng gọi được)
     }, []);
 
     const fetchOrders = async () => {
@@ -46,6 +56,18 @@ function SellerDashboard() {
             const res = await api.get(url);
             setFoods(res.data);
         } catch (err) { console.error(err); }
+    };
+
+    // [ĐÃ SỬA] Bỏ điều kiện check Owner, Staff cũng fetch được
+    const fetchCoupons = async () => {
+        console.log("Đang gọi API lấy Coupon...");
+        try {
+            const res = await api.get('/coupons');
+            console.log("Kết quả Coupon:", res.data);
+            setCoupons(res.data);
+        } catch (err) { 
+            console.error("Lỗi lấy coupon:", err); 
+        }
     };
 
     const stats = useMemo(() => {
@@ -65,51 +87,58 @@ function SellerDashboard() {
         } catch (err) { toast.error("Lỗi cập nhật trạng thái"); }
     };
 
-    // --- HÀM THÊM MÓN (CÓ ẢNH) ---
-    const handleAddFood = async (e) => {
+    // --- XỬ LÝ MÓN ĂN ---
+    const handleSaveFood = async (e) => {
         e.preventDefault();
-        
-        // Dùng FormData để gửi file
         const formData = new FormData();
         formData.append('name', newFood.name);
         formData.append('price', newFood.price);
         formData.append('discount', newFood.discount);
-        
-        // Nếu có file thì gửi kèm
-        if (imageFile) {
-            formData.append('image', imageFile);
-        }
+        if (imageFile) formData.append('image', imageFile);
 
         try {
-            await api.post('/foods', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
-            
-            toast.success("Thêm món thành công! 📸");
+            if (editingFoodId) {
+                await api.put(`/foods/${editingFoodId}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                toast.success("Cập nhật món thành công!");
+            } else {
+                await api.post('/foods', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                toast.success("Thêm món thành công!");
+            }
             setNewFood({ name: '', price: '', discount: 0 });
-            setImageFile(null); // Reset file
-            // Reset input file (bằng cách clear ID hoặc ref, nhưng đơn giản thì kệ)
+            setImageFile(null);
+            setEditingFoodId(null);
             document.getElementById('fileInput').value = ""; 
-            
             fetchFoods();
-        } catch (err) { 
-            console.error(err);
-            toast.error("Lỗi thêm món"); 
-        }
+        } catch (err) { console.error(err); toast.error("Lỗi xử lý món ăn"); }
     };
-    // ----------------------------
+
+    const startEdit = (food) => {
+        setEditingFoodId(food.id);
+        setNewFood({ name: food.name, price: food.price, discount: food.discount });
+        window.scrollTo(0, 0);
+    };
+
+    const cancelEdit = () => {
+        setEditingFoodId(null);
+        setNewFood({ name: '', price: '', discount: 0 });
+        setImageFile(null);
+        document.getElementById('fileInput').value = ""; 
+    };
 
     const handleDeleteFood = async (id) => {
         if (!window.confirm("Xóa món này?")) return;
         try { await api.delete(`/foods/${id}`); toast.info("Đã xóa món"); fetchFoods(); } catch (e) {}
     };
 
+    // --- XỬ LÝ COUPON ---
     const handleCreateCoupon = async (e) => {
         e.preventDefault();
+        if (!newCoupon.start_date || !newCoupon.end_date) return toast.warning("Chọn ngày đầy đủ!");
         try {
             await api.post('/coupons', newCoupon);
             toast.success(`Đã tạo mã ${newCoupon.code}!`);
-            setNewCoupon({ code: '', discount_percent: 0 });
+            setNewCoupon({ code: '', discount_percent: 0, start_date: '', end_date: '' });
+            fetchCoupons(); 
         } catch (err) { toast.error("Lỗi tạo mã"); }
     };
 
@@ -123,10 +152,14 @@ function SellerDashboard() {
     return (
         <div className="seller-container">
             <header className="seller-header">
-                <div><h2>💼 Kênh Người Bán ({sellerMode === 'owner' ? 'Chủ' : 'NV'})</h2>{branchId && <small>Chi nhánh ID: {branchId}</small>}</div>
+                <div>
+                    <h2>💼 Kênh Người Bán ({sellerMode === 'owner' ? 'Chủ' : 'NV'})</h2>
+                    {branchId ? <small>Chi nhánh ID: {branchId}</small> : <small style={{color:'red'}}>Chưa có Chi nhánh (Vui lòng logout và login lại)</small>}
+                </div>
                 <button onClick={() => { localStorage.clear(); navigate('/'); }} className="logout-btn">Đăng xuất</button>
             </header>
 
+            {/* Thống kê giữ nguyên */}
             <div className="stats-grid" style={{display: 'flex', gap: '20px', marginBottom: '30px', flexWrap: 'wrap'}}>
                 <div style={{flex: 1, background: '#4e73df', color: 'white', padding: '20px', borderRadius: '8px'}}><div>DOANH THU</div><div style={{fontSize: '1.8rem', fontWeight: 'bold'}}>{formatMoney(stats.todayRevenue)}</div></div>
                 <div style={{flex: 1, background: '#1cc88a', color: 'white', padding: '20px', borderRadius: '8px'}}><div>ĐƠN HÔM NAY</div><div style={{fontSize: '1.8rem', fontWeight: 'bold'}}>{stats.todayCount} đơn</div></div>
@@ -137,9 +170,11 @@ function SellerDashboard() {
             <div className="tabs">
                 <button className={activeTab === 'orders' ? 'active' : ''} onClick={() => setActiveTab('orders')}>📦 Đơn hàng</button>
                 <button className={activeTab === 'menu' ? 'active' : ''} onClick={() => setActiveTab('menu')}>🍽️ Thực đơn</button>
+                {/* [ĐÃ SỬA] Bỏ check Owner, ai cũng thấy Tab Coupon */}
                 <button className={activeTab === 'coupons' ? 'active' : ''} onClick={() => setActiveTab('coupons')}>🎟️ Mã giảm giá</button>
             </div>
 
+            {/* CONTENT: ORDERS (Giữ nguyên) */}
             {activeTab === 'orders' && (
                 <div className="tab-content">
                     <table className="data-table">
@@ -165,49 +200,39 @@ function SellerDashboard() {
                 </div>
             )}
 
+            {/* CONTENT: MENU (Owner sửa/xóa, Staff chỉ xem) */}
             {activeTab === 'menu' && (
                 <div className="tab-content">
                     {sellerMode === 'owner' && (
-                        <div className="add-form">
-                            <form onSubmit={handleAddFood} style={{display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap'}}>
+                        <div className="add-form" style={{background: editingFoodId ? '#fff3cd' : '#f8f9fa', padding: '15px', borderRadius: '8px', marginBottom: '20px'}}>
+                            <h4>{editingFoodId ? '✏️ Đang sửa món' : '➕ Thêm món mới'}</h4>
+                            <form onSubmit={handleSaveFood} style={{display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap'}}>
                                 <input placeholder="Tên món" value={newFood.name} onChange={e => setNewFood({...newFood, name: e.target.value})} required />
                                 <input type="number" placeholder="Giá" value={newFood.price} onChange={e => setNewFood({...newFood, price: e.target.value})} required style={{width: '100px'}}/>
                                 <input type="number" placeholder="Giảm %" value={newFood.discount} onChange={e => setNewFood({...newFood, discount: e.target.value})} style={{width: '80px'}}/>
-                                
-                                {/* INPUT CHỌN ẢNH */}
-                                <input 
-                                    id="fileInput"
-                                    type="file" 
-                                    accept="image/*" 
-                                    onChange={e => setImageFile(e.target.files[0])} 
-                                    style={{border: 'none', padding: '5px'}}
-                                />
-                                
-                                <button type="submit">Thêm món</button>
+                                <input id="fileInput" type="file" accept="image/*" onChange={e => setImageFile(e.target.files[0])} style={{border: 'none', padding: '5px'}}/>
+                                <button type="submit" style={{background: editingFoodId ? '#ffc107' : '#007bff', color: editingFoodId ? 'black' : 'white'}}>{editingFoodId ? 'Lưu thay đổi' : 'Thêm món'}</button>
+                                {editingFoodId && <button type="button" onClick={cancelEdit} style={{background: '#6c757d', color: 'white'}}>Hủy</button>}
                             </form>
                         </div>
                     )}
                     <table className="data-table">
-                        <thead><tr><th>Ảnh</th><th>Tên món</th><th>Giá</th><th>Giảm</th><th>Xóa</th></tr></thead>
+                        <thead><tr><th>Ảnh</th><th>Tên món</th><th>Giá</th><th>Giảm</th><th>Hành động</th></tr></thead>
                         <tbody>
                             {foods.map(f => (
                                 <tr key={f.id}>
-                                    {/* CỘT HIỂN THỊ ẢNH */}
-                                    <td>
-                                        {f.image_url ? (
-                                            <img 
-                                                src={`${API_URL}${f.image_url}`} 
-                                                alt={f.name} 
-                                                style={{width: '50px', height: '50px', objectFit: 'cover', borderRadius: '4px'}} 
-                                            />
-                                        ) : (
-                                            <span style={{fontSize: '20px'}}>🍖</span>
-                                        )}
-                                    </td>
+                                    <td>{f.image_url ? <img src={`${API_URL}${f.image_url}`} alt="" style={{width: '50px', height: '50px', objectFit: 'cover', borderRadius: '4px'}} /> : <span>🍖</span>}</td>
                                     <td>{f.name}</td>
                                     <td>{formatMoney(f.price)}</td>
                                     <td>{f.discount}%</td>
-                                    <td>{sellerMode === 'owner' && <button className="delete-btn" onClick={() => handleDeleteFood(f.id)}>Xóa</button>}</td>
+                                    <td>
+                                        {sellerMode === 'owner' && (
+                                            <div style={{display:'flex', gap: '5px'}}>
+                                                <button onClick={() => startEdit(f)} style={{background: '#ffc107', border:'none', padding: '5px 10px', borderRadius:'4px', cursor:'pointer'}}>Sửa</button>
+                                                <button className="delete-btn" onClick={() => handleDeleteFood(f.id)}>Xóa</button>
+                                            </div>
+                                        )}
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
@@ -215,8 +240,42 @@ function SellerDashboard() {
                 </div>
             )}
             
-            {activeTab === 'coupons' && sellerMode === 'owner' && (
-                <div className="tab-content"><div className="add-form"><form onSubmit={handleCreateCoupon}><input placeholder="Mã Code" value={newCoupon.code} onChange={e => setNewCoupon({...newCoupon, code: e.target.value})} required /><input type="number" placeholder="Giảm %" value={newCoupon.discount_percent} onChange={e => setNewCoupon({...newCoupon, discount_percent: e.target.value})} required /><button type="submit">Tạo mã</button></form></div></div>
+            {/* CONTENT: COUPONS ([ĐÃ SỬA] Staff xem được, Owner mới được tạo) */}
+            {activeTab === 'coupons' && (
+                <div className="tab-content">
+                    {/* CHỈ OWNER MỚI THẤY FORM TẠO */}
+                    {sellerMode === 'owner' && (
+                        <div className="add-form">
+                            <h4>Tạo mã giảm giá mới</h4>
+                            <form onSubmit={handleCreateCoupon} style={{display:'flex', gap:'10px', flexWrap:'wrap', alignItems:'flex-end'}}>
+                                <div><label style={{fontSize: '0.8rem'}}>Mã Code</label><input placeholder="VD: TET2025" value={newCoupon.code} onChange={e => setNewCoupon({...newCoupon, code: e.target.value})} required /></div>
+                                <div><label style={{fontSize: '0.8rem'}}>Giảm %</label><input type="number" placeholder="%" value={newCoupon.discount_percent} onChange={e => setNewCoupon({...newCoupon, discount_percent: e.target.value})} required style={{width: '60px'}}/></div>
+                                <div><label style={{fontSize: '0.8rem'}}>Từ ngày</label><input type="date" value={newCoupon.start_date} onChange={e => setNewCoupon({...newCoupon, start_date: e.target.value})} required /></div>
+                                <div><label style={{fontSize: '0.8rem'}}>Đến ngày</label><input type="date" value={newCoupon.end_date} onChange={e => setNewCoupon({...newCoupon, end_date: e.target.value})} required /></div>
+                                <button type="submit" style={{height: '40px'}}>Tạo mã</button>
+                            </form>
+                        </div>
+                    )}
+
+                    <h3 style={{marginTop: '30px'}}>🎟️ Mã giảm giá hiện có</h3>
+                    <table className="data-table">
+                        <thead><tr><th>Mã</th><th>Giảm</th><th>Bắt đầu</th><th>Kết thúc</th><th>Trạng thái</th></tr></thead>
+                        <tbody>
+                            {coupons.length === 0 ? <tr><td colSpan="5" style={{textAlign:'center'}}>Chưa có mã nào (Hoặc lỗi tải dữ liệu)</td></tr> : coupons.map(c => {
+                                const isExpired = new Date(c.end_date) < new Date();
+                                return (
+                                    <tr key={c.id} style={{opacity: isExpired ? 0.6 : 1}}>
+                                        <td><strong>{c.code}</strong></td>
+                                        <td>{c.discount_percent}%</td>
+                                        <td>{new Date(c.start_date).toLocaleDateString('vi-VN')}</td>
+                                        <td>{new Date(c.end_date).toLocaleDateString('vi-VN')}</td>
+                                        <td>{isExpired ? <span style={{color:'red'}}>Hết hạn</span> : <span style={{color:'green'}}>Đang chạy</span>}</td>
+                                    </tr>
+                                )
+                            })}
+                        </tbody>
+                    </table>
+                </div>
             )}
         </div>
     );

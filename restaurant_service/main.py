@@ -2,13 +2,14 @@ import httpx
 import shutil
 import os
 import uuid
+from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException, Request, File, UploadFile, Form
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from database import SessionLocal, engine, Base
 import models
 from typing import List, Optional
-from pydantic import BaseModel  # <--- ĐÃ THÊM DÒNG NÀY (QUAN TRỌNG)
+from pydantic import BaseModel 
 
 Base.metadata.create_all(bind=engine)
 
@@ -30,12 +31,13 @@ async def verify_user(request: Request):
     if not token: raise HTTPException(401, "Missing Token")
     try:
         async with httpx.AsyncClient() as client:
+            # Gọi sang user_service để check token
             res = await client.get("http://user_service:8001/verify", headers={"Authorization": token})
             if res.status_code != 200: raise HTTPException(401, "Invalid Token")
             return res.json()
     except Exception as e: raise HTTPException(401, str(e))
 
-# --- API TẠO MÓN (UPLOAD ẢNH) ---
+# --- API MÓN ĂN (TẠO, SỬA, XÓA) ---
 @app.post("/foods")
 async def create_food(
     request: Request,
@@ -69,7 +71,147 @@ async def create_food(
     db.refresh(new_food)
     return new_food
 
-# --- API TÌM KIẾM ---
+# [MỚI] API SỬA MÓN ĂN
+@app.put("/foods/{food_id}")
+async def update_food(
+    food_id: int,
+    request: Request,
+    name: str = Form(...),
+    price: float = Form(...),
+    discount: int = Form(0),
+    image: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db)
+):
+    user = await verify_user(request)
+    
+    food = db.query(models.Food).filter(models.Food.id == food_id).first()
+    if not food: raise HTTPException(404, "Food not found")
+    
+    # Chỉ cho phép Seller của đúng chi nhánh đó sửa
+    if user['role'] != 'seller' or str(user.get('branch_id')) != str(food.branch_id):
+         raise HTTPException(403, "Not authorized to edit this food")
+
+    # Cập nhật thông tin text
+    food.name = name
+    food.price = price
+    food.discount = discount
+
+    # Nếu có upload ảnh mới thì thay thế, không thì giữ nguyên
+    if image:
+        file_extension = image.filename.split(".")[-1]
+        file_name = f"{uuid.uuid4()}.{file_extension}"
+        file_path = f"static/{file_name}"
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(image.file, buffer)
+        food.image_url = f"/static/{file_name}"
+    
+    db.commit()
+    db.refresh(food)
+    return food
+
+@app.delete("/foods/{food_id}")
+async def delete_food(food_id: int, request: Request, db: Session = Depends(get_db)):
+    user = await verify_user(request)
+    if user.get('seller_mode') != 'owner': raise HTTPException(403, "Only Owner")
+    item = db.query(models.Food).filter(models.Food.id == food_id).first()
+    if not item: raise HTTPException(404, "Not found")
+    db.delete(item)
+    db.commit()
+    return {"message": "Deleted"}
+
+# --- API COUPON (NÂNG CẤP) ---
+
+class CouponCreate(BaseModel):
+    code: str
+    discount_percent: int
+    start_date: datetime 
+    end_date: datetime
+
+@app.post("/coupons")
+async def create_coupon(coupon: CouponCreate, request: Request, db: Session = Depends(get_db)):
+    user = await verify_user(request)
+    if user['role'] != 'seller': raise HTTPException(403, "Only Seller")
+    seller_branch_id = user.get('branch_id')
+    if not seller_branch_id: raise HTTPException(400, "No branch")
+    
+    new_coupon = models.Coupon(
+        code=coupon.code.upper(), 
+        discount_percent=coupon.discount_percent, 
+        branch_id=seller_branch_id,
+        start_date=coupon.start_date,
+        end_date=coupon.end_date
+    )
+    db.add(new_coupon)
+    db.commit()
+    db.refresh(new_coupon)
+    return new_coupon
+
+# [MỚI] API Lấy danh sách Coupon (Cho Seller Dashboard)
+@app.get("/coupons")
+async def get_coupons(request: Request, db: Session = Depends(get_db)):
+    user = await verify_user(request)
+    if user['role'] != 'seller': raise HTTPException(403, "Only Seller")
+    branch_id = user.get('branch_id')
+    return db.query(models.Coupon).filter(models.Coupon.branch_id == branch_id).all()
+
+# [NÂNG CẤP] API Verify Coupon (Check hạn + Check đã dùng chưa)
+@app.get("/coupons/verify")
+async def verify_coupon(code: str, branch_id: int, request: Request, db: Session = Depends(get_db)):
+    user = await verify_user(request) # Lấy user để check lịch sử dùng
+    
+    now = datetime.utcnow()
+    coupon = db.query(models.Coupon).filter(
+        models.Coupon.code == code.upper(), 
+        models.Coupon.branch_id == branch_id, 
+        models.Coupon.is_active == True
+    ).first()
+
+    if not coupon: raise HTTPException(404, "Mã không tồn tại")
+
+    # 1. Check ngày hiệu lực
+    if now < coupon.start_date:
+        raise HTTPException(400, "Mã chưa đến đợt áp dụng")
+    if now > coupon.end_date:
+        raise HTTPException(400, "Mã đã hết hạn")
+
+    # 2. Check đã dùng chưa (Mỗi khách chỉ dùng 1 lần)
+    usage = db.query(models.CouponUsage).filter(
+        models.CouponUsage.coupon_id == coupon.id,
+        models.CouponUsage.user_id == user['id']
+    ).first()
+    
+    if usage:
+        raise HTTPException(400, "Bạn đã sử dụng mã này rồi!")
+
+    return {
+        "valid": True, 
+        "discount_percent": coupon.discount_percent, 
+        "code": coupon.code,
+        "id": coupon.id
+    }
+
+# [MỚI] API Redeeme Coupon (Đánh dấu đã dùng - Gọi khi đặt hàng thành công)
+class RedeemRequest(BaseModel):
+    code: str
+    branch_id: int
+
+@app.post("/coupons/redeem")
+async def redeem_coupon(payload: RedeemRequest, request: Request, db: Session = Depends(get_db)):
+    user = await verify_user(request)
+    coupon = db.query(models.Coupon).filter(
+        models.Coupon.code == payload.code.upper(), 
+        models.Coupon.branch_id == payload.branch_id
+    ).first()
+    
+    if coupon:
+        # Lưu vào bảng Usage
+        usage = models.CouponUsage(user_id=user['id'], coupon_id=coupon.id)
+        db.add(usage)
+        db.commit()
+    return {"message": "Redeemed"}
+
+# --- CÁC API KHÁC (SEARCH, DETAIL...) ---
+
 @app.get("/foods/search")
 def search_foods(q: str = None, db: Session = Depends(get_db)):
     query = db.query(models.Food)
@@ -134,39 +276,10 @@ def get_food_detail(food_id: int, db: Session = Depends(get_db)):
     if not food: raise HTTPException(status_code=404, detail="Food not found")
     return food
 
-# --- CÁC API KHÁC ---
-@app.post("/coupons")
-async def create_coupon(coupon: dict, request: Request, db: Session = Depends(get_db)):
-    user = await verify_user(request)
-    if user['role'] != 'seller': raise HTTPException(403, "Only Seller")
-    seller_branch_id = user.get('branch_id')
-    if not seller_branch_id: raise HTTPException(400, "No branch")
-    new_coupon = models.Coupon(code=coupon['code'].upper(), discount_percent=coupon['discount_percent'], branch_id=seller_branch_id)
-    db.add(new_coupon)
-    db.commit()
-    db.refresh(new_coupon)
-    return new_coupon
-
-@app.get("/coupons/verify")
-def verify_coupon(code: str, branch_id: int, db: Session = Depends(get_db)):
-    coupon = db.query(models.Coupon).filter(models.Coupon.code == code.upper(), models.Coupon.branch_id == branch_id, models.Coupon.is_active == True).first()
-    if not coupon: raise HTTPException(404, "Invalid")
-    return {"valid": True, "discount_percent": coupon.discount_percent, "code": coupon.code}
-
 @app.get("/foods") 
 def read_foods(branch_id: int = None, db: Session = Depends(get_db)):
     if branch_id: return db.query(models.Food).filter(models.Food.branch_id == branch_id).all()
     return db.query(models.Food).all()
-
-@app.delete("/foods/{food_id}")
-async def delete_food(food_id: int, request: Request, db: Session = Depends(get_db)):
-    user = await verify_user(request)
-    if user.get('seller_mode') != 'owner': raise HTTPException(403, "Only Owner")
-    item = db.query(models.Food).filter(models.Food.id == food_id).first()
-    if not item: raise HTTPException(404, "Not found")
-    db.delete(item)
-    db.commit()
-    return {"message": "Deleted"}
 
 @app.post("/branches")
 def create_branch(branch: dict, db: Session = Depends(get_db)):
@@ -186,7 +299,7 @@ def get_branch_detail(branch_id: int, db: Session = Depends(get_db)):
     if not b: raise HTTPException(404, "Branch not found")
     return b
 
-# --- API REVIEWS (Sửa lại BaseModel) ---
+# --- API REVIEWS ---
 class FoodRatingInput(BaseModel):
     food_id: int
     score: int
@@ -201,6 +314,7 @@ class ReviewInput(BaseModel):
 async def create_review(payload: ReviewInput, request: Request, db: Session = Depends(get_db)):
     user = await verify_user(request)
     async with httpx.AsyncClient() as client:
+        # Gọi sang order_service để kiểm tra order
         check_url = f"http://order_service:8003/orders/{payload.order_id}/check-review"
         try:
             res = await client.get(check_url, params={"user_id": user['id']})

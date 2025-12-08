@@ -13,6 +13,8 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
 RESTAURANT_SERVICE_URL = os.getenv("RESTAURANT_SERVICE_URL", "http://restaurant_service:8002")
+# --- THÊM URL SERVICE THÔNG BÁO ---
+NOTIFICATION_SERVICE_URL = os.getenv("NOTIFICATION_SERVICE_URL", "http://notification_service:8006")
 
 def get_db():
     db = SessionLocal()
@@ -59,7 +61,7 @@ async def create_order(payload: OrderCreate, db: Session = Depends(get_db)):
                     "food_name": food_data['name'],
                     "price": final_item_price,
                     "quantity": item.quantity,
-                    "image_url": food_data.get('image_url') # <--- Lấy ảnh
+                    "image_url": food_data.get('image_url') 
                 })
             except Exception:
                 raise HTTPException(status_code=503, detail="Lỗi kết nối Restaurant Service")
@@ -105,11 +107,23 @@ async def create_order(payload: OrderCreate, db: Session = Depends(get_db)):
             food_name=item['food_name'],
             price=item['price'],
             quantity=item['quantity'],
-            image_url=item['image_url'] # <--- Lưu vào DB
+            image_url=item['image_url']
         )
         db.add(new_item)
     
     db.commit()
+
+    # --- [MỚI] GỬI THÔNG BÁO WEBSOCKET ---
+    # Bắn tin sang Notification Service để báo cho Chủ quán biết
+    async with httpx.AsyncClient() as client:
+        try:
+            await client.post(f"{NOTIFICATION_SERVICE_URL}/notify", json={
+                "branch_id": payload.branch_id,
+                "message": "NEW_ORDER" 
+            })
+        except Exception as e:
+            print(f"Lỗi gửi thông báo WebSocket: {e}") 
+    # -------------------------------------
 
     return {"order_id": new_order.id, "total_price": final_price, "status": "PENDING_PAYMENT"}
 

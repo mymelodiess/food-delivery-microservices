@@ -4,6 +4,7 @@ import { toast } from 'react-toastify';
 import api from './api';
 
 const API_URL = "http://localhost:8000"; 
+const WS_URL = "ws://localhost:8006/ws"; // URL WebSocket
 
 function SellerDashboard() {
     const navigate = useNavigate();
@@ -16,34 +17,48 @@ function SellerDashboard() {
     const [orders, setOrders] = useState([]);
     const [coupons, setCoupons] = useState([]);
 
-    // Form thêm/sửa món
     const [newFood, setNewFood] = useState({ name: '', price: '', discount: 0 });
     const [imageFile, setImageFile] = useState(null); 
     const [editingFoodId, setEditingFoodId] = useState(null); 
     
-    // Form tạo coupon
     const [newCoupon, setNewCoupon] = useState({ 
         code: '', discount_percent: 0, start_date: '', end_date: ''
     });
 
     useEffect(() => {
-        // Log để kiểm tra xem localStorage có gì
-        console.log("--- DEBUG DASHBOARD ---");
-        console.log("Role:", role);
-        console.log("Seller Mode:", sellerMode);
-        console.log("Branch ID:", branchId);
-
         if (role !== 'seller') {
             toast.error("Không có quyền truy cập!");
             navigate('/');
             return;
         }
+        
+        // Debug
+        if (!branchId) console.error("Lỗi: Không tìm thấy Branch ID");
+
         fetchOrders();
         fetchFoods();
-        fetchCoupons(); // Gọi hàm lấy danh sách (Giờ ai cũng gọi được)
-    }, []);
+        fetchCoupons();
+
+        // --- KẾT NỐI WEBSOCKET (Đã thêm lại cho bạn) ---
+        if (branchId) {
+            const ws = new WebSocket(`${WS_URL}/${branchId}`);
+            
+            ws.onopen = () => console.log("🟢 WebSocket Connected!");
+            
+            ws.onmessage = (event) => {
+                if (event.data === "NEW_ORDER") {
+                    toast.info("🔔 Ting Ting! Có đơn hàng mới!", {
+                        autoClose: 5000, theme: "colored"
+                    });
+                    fetchOrders(); // Tự động load lại đơn
+                }
+            };
+            return () => ws.close();
+        }
+    }, [branchId]); 
 
     const fetchOrders = async () => {
+        if (!branchId) return;
         try {
             const res = await api.get('/orders', { params: { branch_id: branchId } });
             setOrders(res.data);
@@ -51,23 +66,18 @@ function SellerDashboard() {
     };
 
     const fetchFoods = async () => {
+        if (!branchId) return; // Fix lỗi 403: Không có branch thì không gọi
         try {
-            let url = branchId ? `/foods?branch_id=${branchId}` : '/foods';
-            const res = await api.get(url);
+            const res = await api.get(`/foods?branch_id=${branchId}`);
             setFoods(res.data);
         } catch (err) { console.error(err); }
     };
 
-    // [ĐÃ SỬA] Bỏ điều kiện check Owner, Staff cũng fetch được
     const fetchCoupons = async () => {
-        console.log("Đang gọi API lấy Coupon...");
         try {
             const res = await api.get('/coupons');
-            console.log("Kết quả Coupon:", res.data);
             setCoupons(res.data);
-        } catch (err) { 
-            console.error("Lỗi lấy coupon:", err); 
-        }
+        } catch (err) { console.error("Lỗi lấy coupon:", err); }
     };
 
     const stats = useMemo(() => {
@@ -87,29 +97,51 @@ function SellerDashboard() {
         } catch (err) { toast.error("Lỗi cập nhật trạng thái"); }
     };
 
-    // --- XỬ LÝ MÓN ĂN ---
     const handleSaveFood = async (e) => {
         e.preventDefault();
+        
+        // 1. Tạo FormData
         const formData = new FormData();
         formData.append('name', newFood.name);
-        formData.append('price', newFood.price);
-        formData.append('discount', newFood.discount);
-        if (imageFile) formData.append('image', imageFile);
+        formData.append('price', parseFloat(newFood.price) || 0); // Ép kiểu số
+        formData.append('discount', parseInt(newFood.discount) || 0);
+        
+        if (imageFile) {
+            formData.append('image', imageFile);
+        }
+
+        // --- CẤU HÌNH FIX LỖI AXIOS ---
+        // Ép kiểu undefined để Axios buộc trình duyệt tự sinh boundary
+        const config = {
+            headers: { "Content-Type": undefined }
+        };
 
         try {
             if (editingFoodId) {
-                await api.put(`/foods/${editingFoodId}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                // Sửa món (PUT)
+                await api.put(`/foods/${editingFoodId}`, formData, config);
                 toast.success("Cập nhật món thành công!");
             } else {
-                await api.post('/foods', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                // Thêm món (POST)
+                await api.post('/foods', formData, config);
                 toast.success("Thêm món thành công!");
             }
+            
+            // Reset form
             setNewFood({ name: '', price: '', discount: 0 });
             setImageFile(null);
             setEditingFoodId(null);
-            document.getElementById('fileInput').value = ""; 
+            const fileInput = document.getElementById('fileInput');
+            if(fileInput) fileInput.value = ""; 
+            
             fetchFoods();
-        } catch (err) { console.error(err); toast.error("Lỗi xử lý món ăn"); }
+        } catch (err) { 
+            console.error("Lỗi Save Food:", err); 
+            const msg = err.response?.data?.detail 
+                ? (Array.isArray(err.response.data.detail) ? err.response.data.detail[0].msg : err.response.data.detail)
+                : "Lỗi xử lý món ăn";
+            toast.error(msg);
+        }
     };
 
     const startEdit = (food) => {
@@ -122,7 +154,8 @@ function SellerDashboard() {
         setEditingFoodId(null);
         setNewFood({ name: '', price: '', discount: 0 });
         setImageFile(null);
-        document.getElementById('fileInput').value = ""; 
+        const fileInput = document.getElementById('fileInput');
+        if(fileInput) fileInput.value = ""; 
     };
 
     const handleDeleteFood = async (id) => {
@@ -130,7 +163,6 @@ function SellerDashboard() {
         try { await api.delete(`/foods/${id}`); toast.info("Đã xóa món"); fetchFoods(); } catch (e) {}
     };
 
-    // --- XỬ LÝ COUPON ---
     const handleCreateCoupon = async (e) => {
         e.preventDefault();
         if (!newCoupon.start_date || !newCoupon.end_date) return toast.warning("Chọn ngày đầy đủ!");
@@ -154,12 +186,11 @@ function SellerDashboard() {
             <header className="seller-header">
                 <div>
                     <h2>💼 Kênh Người Bán ({sellerMode === 'owner' ? 'Chủ' : 'NV'})</h2>
-                    {branchId ? <small>Chi nhánh ID: {branchId}</small> : <small style={{color:'red'}}>Chưa có Chi nhánh (Vui lòng logout và login lại)</small>}
+                    {branchId ? <small>Chi nhánh ID: {branchId}</small> : <small style={{color:'red'}}>Chưa có Chi nhánh (Login lại)</small>}
                 </div>
                 <button onClick={() => { localStorage.clear(); navigate('/'); }} className="logout-btn">Đăng xuất</button>
             </header>
 
-            {/* Thống kê giữ nguyên */}
             <div className="stats-grid" style={{display: 'flex', gap: '20px', marginBottom: '30px', flexWrap: 'wrap'}}>
                 <div style={{flex: 1, background: '#4e73df', color: 'white', padding: '20px', borderRadius: '8px'}}><div>DOANH THU</div><div style={{fontSize: '1.8rem', fontWeight: 'bold'}}>{formatMoney(stats.todayRevenue)}</div></div>
                 <div style={{flex: 1, background: '#1cc88a', color: 'white', padding: '20px', borderRadius: '8px'}}><div>ĐƠN HÔM NAY</div><div style={{fontSize: '1.8rem', fontWeight: 'bold'}}>{stats.todayCount} đơn</div></div>
@@ -170,11 +201,9 @@ function SellerDashboard() {
             <div className="tabs">
                 <button className={activeTab === 'orders' ? 'active' : ''} onClick={() => setActiveTab('orders')}>📦 Đơn hàng</button>
                 <button className={activeTab === 'menu' ? 'active' : ''} onClick={() => setActiveTab('menu')}>🍽️ Thực đơn</button>
-                {/* [ĐÃ SỬA] Bỏ check Owner, ai cũng thấy Tab Coupon */}
                 <button className={activeTab === 'coupons' ? 'active' : ''} onClick={() => setActiveTab('coupons')}>🎟️ Mã giảm giá</button>
             </div>
 
-            {/* CONTENT: ORDERS (Giữ nguyên) */}
             {activeTab === 'orders' && (
                 <div className="tab-content">
                     <table className="data-table">
@@ -200,7 +229,6 @@ function SellerDashboard() {
                 </div>
             )}
 
-            {/* CONTENT: MENU (Owner sửa/xóa, Staff chỉ xem) */}
             {activeTab === 'menu' && (
                 <div className="tab-content">
                     {sellerMode === 'owner' && (
@@ -240,10 +268,8 @@ function SellerDashboard() {
                 </div>
             )}
             
-            {/* CONTENT: COUPONS ([ĐÃ SỬA] Staff xem được, Owner mới được tạo) */}
             {activeTab === 'coupons' && (
                 <div className="tab-content">
-                    {/* CHỈ OWNER MỚI THẤY FORM TẠO */}
                     {sellerMode === 'owner' && (
                         <div className="add-form">
                             <h4>Tạo mã giảm giá mới</h4>
@@ -261,7 +287,7 @@ function SellerDashboard() {
                     <table className="data-table">
                         <thead><tr><th>Mã</th><th>Giảm</th><th>Bắt đầu</th><th>Kết thúc</th><th>Trạng thái</th></tr></thead>
                         <tbody>
-                            {coupons.length === 0 ? <tr><td colSpan="5" style={{textAlign:'center'}}>Chưa có mã nào (Hoặc lỗi tải dữ liệu)</td></tr> : coupons.map(c => {
+                            {coupons.length === 0 ? <tr><td colSpan="5" style={{textAlign:'center'}}>Chưa có mã nào</td></tr> : coupons.map(c => {
                                 const isExpired = new Date(c.end_date) < new Date();
                                 return (
                                     <tr key={c.id} style={{opacity: isExpired ? 0.6 : 1}}>

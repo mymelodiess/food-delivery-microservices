@@ -5,7 +5,8 @@ import { toast } from 'react-toastify';
 
 function Profile() {
     const [addresses, setAddresses] = useState([]);
-    const [newAddress, setNewAddress] = useState({ title: '', address: '', phone: '' });
+    // Thêm trường name
+    const [newAddress, setNewAddress] = useState({ title: '', name: '', address: '', phone: '' });
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -17,7 +18,6 @@ function Profile() {
         if (!token) return;
 
         try {
-            // Gọi API lấy danh sách địa chỉ (Cần gửi Token để xác thực)
             const res = await api.get('/users/addresses', {
                 headers: { Authorization: `Bearer ${token}` }
             });
@@ -36,15 +36,24 @@ function Profile() {
                 headers: { Authorization: `Bearer ${token}` }
             });
             toast.success("Thêm địa chỉ thành công! 🏠");
-            setNewAddress({ title: '', address: '', phone: '' }); // Reset form
+            setNewAddress({ title: '', name: '', address: '', phone: '' }); // Reset form
             fetchAddresses(); // Tải lại danh sách
         } catch (err) {
-            toast.error("Lỗi thêm địa chỉ");
+             let msg = "Lỗi thêm địa chỉ";
+             if (err.response && err.response.data && err.response.data.detail) {
+                 // Nếu lỗi validation từ backend trả về
+                 if (Array.isArray(err.response.data.detail)) {
+                    msg = err.response.data.detail[0].msg;
+                 } else {
+                    msg = err.response.data.detail;
+                 }
+             }
+             toast.error(msg);
         }
     };
 
     return (
-        <div className="container" style={{maxWidth: '800px'}}>
+        <div className="container" style={{maxWidth: '900px'}}>
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}>
                 <h2>👤 Hồ sơ cá nhân</h2>
                 <button onClick={() => navigate('/shop')}>← Quay lại mua sắm</button>
@@ -53,7 +62,7 @@ function Profile() {
             <div className="profile-layout" style={{display: 'flex', gap: '30px', flexWrap: 'wrap'}}>
                 
                 {/* CỘT TRÁI: THÊM ĐỊA CHỈ MỚI */}
-                <div style={{flex: 1, minWidth: '300px'}}>
+                <div style={{flex: 1, minWidth: '350px'}}>
                     <h3>Thêm địa chỉ mới</h3>
                     <form onSubmit={handleAddAddress} className="auth-form">
                         <input 
@@ -62,8 +71,15 @@ function Profile() {
                             onChange={e => setNewAddress({...newAddress, title: e.target.value})}
                             required 
                         />
+                        {/* INPUT MỚI: TÊN NGƯỜI NHẬN */}
                         <input 
-                            placeholder="Số điện thoại người nhận" 
+                            placeholder="Họ và tên người nhận" 
+                            value={newAddress.name}
+                            onChange={e => setNewAddress({...newAddress, name: e.target.value})}
+                            required 
+                        />
+                        <input 
+                            placeholder="Số điện thoại (10 số)" 
                             value={newAddress.phone}
                             onChange={e => setNewAddress({...newAddress, phone: e.target.value})}
                             required 
@@ -80,13 +96,16 @@ function Profile() {
                 </div>
 
                 {/* CỘT PHẢI: DANH SÁCH ĐỊA CHỈ */}
-                <div style={{flex: 1, minWidth: '300px'}}>
+                <div style={{flex: 1, minWidth: '350px'}}>
                     <h3>Sổ địa chỉ của tôi</h3>
                     {addresses.length === 0 ? <p>Chưa có địa chỉ nào được lưu.</p> : (
                         <div className="address-list">
                             {addresses.map(addr => (
                                 <div key={addr.id} style={{border: '1px solid #ddd', padding: '15px', borderRadius: '8px', marginBottom: '10px', background: '#f9f9f9'}}>
-                                    <div style={{fontWeight: 'bold', color: '#007bff'}}>{addr.title}</div>
+                                    <div style={{display:'flex', justifyContent:'space-between'}}>
+                                        <span style={{fontWeight: 'bold', color: '#007bff'}}>{addr.title}</span>
+                                    </div>
+                                    <div style={{marginTop:'5px', fontWeight:'600'}}>👤 {addr.name}</div>
                                     <div>📞 {addr.phone}</div>
                                     <div>📍 {addr.address}</div>
                                 </div>

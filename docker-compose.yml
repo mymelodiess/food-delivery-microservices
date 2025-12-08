@@ -83,6 +83,14 @@ services:
     restart: always
     command: uvicorn main:app --host 0.0.0.0 --port 8005 --reload
 
+  notification_service:
+    build: ./notification_service
+    container_name: notification_service
+    ports:
+      - "8006:8006" # Chạy cổng 8006
+    restart: always
+    command: uvicorn main:app --host 0.0.0.0 --port 8006 --reload
+
   gateway_service:
     build: ./gateway_service
     container_name: gateway_service

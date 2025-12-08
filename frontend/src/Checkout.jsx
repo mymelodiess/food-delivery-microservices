@@ -14,7 +14,7 @@ function Checkout() {
     const [branchName, setBranchName] = useState('Đang tải...');
     const [savedAddresses, setSavedAddresses] = useState([]); 
     const [loading, setLoading] = useState(false);
-    const [step, setStep] = useState(1); // 1: Checkout Form, 3: Success (Dùng cho luồng cũ, nhưng ta giữ nguyên)
+    const [step, setStep] = useState(1); 
 
     useEffect(() => {
         if (!items || items.length === 0) { navigate('/shop'); return; }
@@ -36,7 +36,13 @@ function Checkout() {
         if (!addrId) return;
         const selected = savedAddresses.find(a => a.id == addrId);
         if (selected) {
-            setCustomerInfo(prev => ({ ...prev, name: selected.name, phone: selected.phone, address: selected.address }));
+            // [CẬP NHẬT] Điền cả tên người nhận
+            setCustomerInfo(prev => ({ 
+                ...prev, 
+                name: selected.name, 
+                phone: selected.phone, 
+                address: selected.address 
+            }));
             toast.info(`Đã chọn: ${selected.title}`);
         }
     };
@@ -70,17 +76,14 @@ function Checkout() {
                 note: customerInfo.note
             };
             
-            // 1. GỌI API TẠO ĐƠN HÀNG (Quan trọng)
+            // Gọi API tạo đơn
             const orderRes = await api.post('/checkout', orderPayload);
             const { order_id, total_price } = orderRes.data;
 
-            // 2. CHUYỂN HƯỚNG SANG CỔNG THANH TOÁN
             toast.info("Đang chuyển sang cổng thanh toán...");
             navigate('/payment', { 
                 state: { order_id: order_id, total_price: total_price } 
             });
-
-            // Quan trọng: RETURN để thoát khỏi hàm, không chạy vào logic setStep(3)
             return; 
 
         } catch (err) {
@@ -95,61 +98,78 @@ function Checkout() {
     if (!items) return null;
 
     return (
-        <div className="container" style={{maxWidth: '800px'}}>
+        <div className="container" style={{maxWidth: '900px'}}>
             {step === 1 && (
                 <div className="checkout-layout" style={{display: 'flex', gap: '20px', flexWrap: 'wrap'}}>
-                    <div className="info-section" style={{flex: 1, minWidth: '300px'}}>
+                    <div className="info-section" style={{flex: 1, minWidth: '350px'}}>
                         <h2>📍 Thông tin giao hàng</h2>
-                        {/* Phần chọn địa chỉ... */}
+                        
+                        {/* Dropdown chọn nhanh */}
                         {savedAddresses.length > 0 && (
-                            <div style={{marginBottom: '15px', padding: '10px', background: '#e9ecef', borderRadius: '5px'}}>
-                                <label style={{fontWeight: 'bold'}}>⚡ Chọn nhanh:</label>
-                                <select onChange={handleSelectAddress} style={{width: '100%', padding: '8px', marginTop: '5px'}}>
-                                    <option value="">-- Sổ địa chỉ --</option>
-                                    {savedAddresses.map(addr => (<option key={addr.id} value={addr.id}>{addr.title} ({addr.name}) - {addr.address}</option>))}
+                            <div style={{marginBottom: '15px', padding: '15px', background: '#e9ecef', borderRadius: '8px', border: '1px solid #dee2e6'}}>
+                                <label style={{fontWeight: 'bold', display:'block', marginBottom:'5px'}}>⚡ Chọn nhanh từ sổ địa chỉ:</label>
+                                <select onChange={handleSelectAddress} style={{width: '100%', padding: '10px', borderRadius:'4px', border:'1px solid #ced4da'}}>
+                                    <option value="">-- Chọn địa chỉ --</option>
+                                    {savedAddresses.map(addr => (
+                                        <option key={addr.id} value={addr.id}>
+                                            {addr.title} - {addr.name} ({addr.phone})
+                                        </option>
+                                    ))}
                                 </select>
                             </div>
                         )}
+
                         <div className="auth-form">
-                            <label>Họ tên:</label><input name="name" value={customerInfo.name} onChange={handleChange} placeholder="Nguyễn Văn A" />
-                            <label>SĐT:</label><input name="phone" value={customerInfo.phone} onChange={handleChange} placeholder="098..." />
-                            <label>Địa chỉ:</label><textarea name="address" value={customerInfo.address} onChange={handleChange} placeholder="Số nhà, đường..." style={{width:'100%', padding:'10px', height:'80px'}} />
-                            <label>Ghi chú:</label><input name="note" value={customerInfo.note} onChange={handleChange} />
+                            <label>Họ tên người nhận:</label>
+                            <input name="name" value={customerInfo.name} onChange={handleChange} placeholder="Nguyễn Văn A" />
+                            
+                            <label>Số điện thoại:</label>
+                            <input name="phone" value={customerInfo.phone} onChange={handleChange} placeholder="098..." />
+                            
+                            <label>Địa chỉ nhận hàng:</label>
+                            <textarea name="address" value={customerInfo.address} onChange={handleChange} placeholder="Số nhà, đường..." style={{width:'100%', padding:'10px', height:'80px'}} />
+                            
+                            <label>Ghi chú (tùy chọn):</label>
+                            <input name="note" value={customerInfo.note} onChange={handleChange} placeholder="Ví dụ: Ít cay, nhiều nước lèo..." />
                         </div>
                     </div>
 
-                    <div className="order-summary" style={{flex: 1, minWidth: '300px', background: '#f8f9fa', padding: '20px', borderRadius: '8px', height: 'fit-content'}}>
-                        <h3 style={{marginTop:0}}>🧾 Đơn từ: <span style={{color: '#007bff'}}>{branchName}</span></h3>
-                        <ul style={{listStyle:'none', padding:0}}>
+                    <div className="order-summary" style={{flex: 1, minWidth: '350px', background: '#f8f9fa', padding: '25px', borderRadius: '8px', height: 'fit-content', border: '1px solid #dee2e6'}}>
+                        <h3 style={{marginTop:0, borderBottom:'1px solid #ddd', paddingBottom:'10px'}}>🧾 Đơn hàng từ: <span style={{color: '#007bff'}}>{branchName}</span></h3>
+                        <ul style={{listStyle:'none', padding:0, maxHeight:'300px', overflowY:'auto'}}>
                             {items.map(item => (
-                                <li key={item.food_id} style={{display:'flex', alignItems: 'center', justifyContent:'space-between', marginBottom:'8px'}}>
-                                    <div style={{display:'flex', alignItems: 'center'}}>
-                                        {item.image_url && <img src={`${API_URL}${item.image_url}`} className="checkout-thumb" alt="" />}
-                                        <span><b>{item.quantity}x</b> {item.name}</span>
+                                <li key={item.food_id} style={{display:'flex', alignItems: 'center', justifyContent:'space-between', marginBottom:'15px', borderBottom:'1px dashed #eee', paddingBottom:'10px'}}>
+                                    <div style={{display:'flex', alignItems: 'center', gap: '10px'}}>
+                                        {item.image_url && <img src={`${API_URL}${item.image_url}`} style={{width:'50px', height:'50px', objectFit:'cover', borderRadius:'4px'}} alt="" />}
+                                        <div>
+                                            <div style={{fontWeight:'bold'}}>{item.name}</div>
+                                            <div style={{fontSize:'0.9rem', color:'#666'}}>x {item.quantity}</div>
+                                        </div>
                                     </div>
-                                    <span>{formatMoney(item.price*item.quantity)}</span>
+                                    <span style={{fontWeight:'bold'}}>{formatMoney(item.price*item.quantity)}</span>
                                 </li>
                             ))}
                         </ul>
-                        <hr/>
-                        {coupon && <div style={{display:'flex', justifyContent:'space-between', color:'green'}}><span>Mã giảm ({coupon.code}):</span><span>-{coupon.discount_percent}%</span></div>}
-                        <div style={{display:'flex', justifyContent:'space-between', fontSize:'1.3rem', fontWeight:'bold', marginTop:'15px', color:'#d32f2f'}}><span>Tổng:</span><span>{formatMoney(final_price)}</span></div>
-                        <div style={{marginTop: '20px', display: 'flex', gap: '10px'}}>
-                            <button onClick={() => navigate('/cart')} style={{flex: 1, padding: '10px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px'}}>Quay lại</button>
-                            <button onClick={handleConfirmOrder} disabled={loading} style={{flex: 2, padding: '10px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 'bold'}}>
-                                {loading ? <><span className="spinner"></span> Xử lý...</> : "ĐẶT HÀNG NGAY"}
+                        
+                        {coupon && (
+                            <div style={{display:'flex', justifyContent:'space-between', color:'green', background:'#d4edda', padding:'10px', borderRadius:'4px', marginBottom:'10px'}}>
+                                <span>Mã giảm ({coupon.code}):</span>
+                                <span>-{coupon.discount_percent}%</span>
+                            </div>
+                        )}
+                        
+                        <div style={{display:'flex', justifyContent:'space-between', fontSize:'1.4rem', fontWeight:'bold', marginTop:'15px', color:'#d32f2f', borderTop:'2px solid #ddd', paddingTop:'15px'}}>
+                            <span>Tổng tiền:</span>
+                            <span>{formatMoney(final_price)}</span>
+                        </div>
+                        
+                        <div style={{marginTop: '25px', display: 'flex', gap: '10px'}}>
+                            <button onClick={() => navigate('/cart')} style={{flex: 1, padding: '12px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor:'pointer'}}>Quay lại</button>
+                            <button onClick={handleConfirmOrder} disabled={loading} style={{flex: 2, padding: '12px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize:'1.1rem', cursor:'pointer'}}>
+                                {loading ? "Đang xử lý..." : "ĐẶT HÀNG NGAY"}
                             </button>
                         </div>
                     </div>
-                </div>
-            )}
-            {/* GIỮ NGUYÊN PHẦN STEP 3 CHO HIỂN THỊ THÀNH CÔNG, DÙ BÂY GIỜ TA SẼ KHÔNG BAO GIỜ DÙNG NÓ NỮA */}
-            {step === 3 && (
-                <div className="success-screen" style={{textAlign: 'center', padding: '50px', background:'white'}}>
-                    <div style={{fontSize: '60px'}}>🚀</div>
-                    <h2 style={{color: '#28a745'}}>Thành công!</h2>
-                    <p>Đơn hàng đang chờ thanh toán.</p>
-                    <button onClick={() => navigate('/history')} style={{marginTop: '20px', padding: '12px 30px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px'}}>Xem đơn hàng</button>
                 </div>
             )}
         </div>

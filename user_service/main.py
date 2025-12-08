@@ -46,7 +46,7 @@ class UserCreate(BaseModel):
     role: str = "buyer"
     phone: str = None
     address: str = None
-    seller_mode: str = None # Mới
+    seller_mode: str = None 
 
     # 1. Validate Email
     @validator('email')
@@ -85,10 +85,19 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
+# [CẬP NHẬT] Thêm name và validate phone cho địa chỉ
 class AddressCreate(BaseModel):
     title: str
+    name: str
     address: str
     phone: str
+
+    @validator('phone')
+    def validate_phone(cls, v):
+        regex = r'^0\d{9}$'
+        if not re.match(regex, v):
+            raise ValueError('Số điện thoại người nhận không hợp lệ (Phải có 10 số, bắt đầu bằng 0)')
+        return v
 
 class AddressResponse(AddressCreate):
     id: int
@@ -139,14 +148,14 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         "id": user.id, 
         "role": user.role,
         "branch_id": user.managed_branch_id,
-        "seller_mode": user.seller_mode # Thêm vào Token
+        "seller_mode": user.seller_mode
     }
     access_token = create_access_token(token_data)
     
     return {
         "access_token": access_token, 
         "token_type": "bearer",
-        "id": user.id,  # <--- MÌNH ĐÃ THÊM DÒNG NÀY ĐỂ FRONTEND LẤY ĐƯỢC ID
+        "id": user.id,
         "role": user.role,
         "branch_id": user.managed_branch_id,
         "seller_mode": user.seller_mode
@@ -174,7 +183,15 @@ def get_current_user_id(authorization: str):
 def add_address(addr: AddressCreate, authorization: str = Header(None), db: Session = Depends(get_db)):
     user_id = get_current_user_id(authorization)
     if not user_id: raise HTTPException(401, "Invalid Token")
-    new_addr = models.UserAddress(user_id=user_id, title=addr.title, address=addr.address, phone=addr.phone)
+    
+    # [MỚI] Lưu thêm cột name
+    new_addr = models.UserAddress(
+        user_id=user_id, 
+        title=addr.title, 
+        name=addr.name,
+        address=addr.address, 
+        phone=addr.phone
+    )
     db.add(new_addr)
     db.commit()
     db.refresh(new_addr)
@@ -186,7 +203,7 @@ def get_my_addresses(authorization: str = Header(None), db: Session = Depends(ge
     if not user_id: raise HTTPException(401, "Invalid Token")
     return db.query(models.UserAddress).filter(models.UserAddress.user_id == user_id).all()
 
-# --- [MỚI] API INTERNAL ĐỂ CẬP NHẬT BRANCH CHO USER (Dùng cho init_data.py) ---
+# --- INTERNAL API (Cho init_data.py dùng để gán branch) ---
 @app.put("/users/{user_id}/branch")
 def update_user_branch(user_id: int, branch_id: int, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.id == user_id).first()

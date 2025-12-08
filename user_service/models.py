@@ -12,9 +12,7 @@ class User(Base):
     
     role = Column(String(20), default="buyer") # buyer / seller
     
-    # --- MỚI: Cấp độ của Seller ---
-    # 'owner': Chủ quán (Full quyền)
-    # 'staff': Nhân viên (Chỉ xử lý đơn)
+    # 'owner': Chủ quán (Full quyền), 'staff': Nhân viên
     seller_mode = Column(String(20), nullable=True) 
     
     managed_branch_id = Column(Integer, nullable=True)
@@ -32,6 +30,10 @@ class UserAddress(Base):
     user_id = Column(Integer, ForeignKey("users.id"))
     
     title = Column(String(50)) 
+    
+    # [MỚI] Thêm cột tên người nhận
+    name = Column(String(100))
+    
     address = Column(String(255))
     phone = Column(String(20))
     
